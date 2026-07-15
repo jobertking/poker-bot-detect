@@ -25,8 +25,18 @@ pm2 delete $PM2_NAME 2>/dev/null || true
 
 export PYTHONPATH="$(pwd)"
 export POKER44_MODEL_PATH="${POKER44_MODEL_PATH:-$(pwd)/models/competitive/current.joblib}"
+# MODEL_PATH takes precedence over MODEL_DIR when both are set.
 export POKER44_MODEL_DIR="${POKER44_MODEL_DIR:-$(pwd)/models/competitive}"
 export POKER44_BATCH_CALIBRATION="${POKER44_BATCH_CALIBRATION:-topk_v1}"
+# Optional: pm2 process name to reload after daily retrain (hot-reload also works in-process).
+export POKER44_PM2_RELOAD="${POKER44_PM2_RELOAD:-}"
+export POKER44_ARCHIVE_KEEP="${POKER44_ARCHIVE_KEEP:-30}"
+# Validator request dumps: plain JSON, no rotation (watch disk usage).
+export POKER44_LOG_REQUESTS="${POKER44_LOG_REQUESTS:-1}"
+export POKER44_REQUEST_LOG_DIR="${POKER44_REQUEST_LOG_DIR:-$(pwd)/logs/requests}"
+export POKER44_LOG_REQUEST_FULL="${POKER44_LOG_REQUEST_FULL:-1}"
+export POKER44_LOG_REQUEST_GZIP="${POKER44_LOG_REQUEST_GZIP:-0}"
+export POKER44_REQUEST_LOG_MAX_FILES="${POKER44_REQUEST_LOG_MAX_FILES:-0}"
 
 MINER_ARGS=(
   --netuid "$NETUID"

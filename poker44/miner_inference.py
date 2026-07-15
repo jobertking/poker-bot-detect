@@ -39,11 +39,17 @@ _SCHEMAS = {
 
 
 def sanitize_chunk(hands: Sequence[dict] | None) -> list[dict]:
+    """Prepare hands for features. Idempotent if already miner-canonical."""
     out = []
     for hand in hands or []:
         if isinstance(hand, dict):
             out.append(prepare_hand_for_miner(hand))
     return out
+
+
+def _default_feature_names(feature_set: str) -> list[str]:
+    schema = _SCHEMAS.get(feature_set, competitive_schema)
+    return list(getattr(schema, "FEATURE_NAMES", competitive_schema.FEATURE_NAMES))
 
 
 def _blend_predict(models: list, weights: list[float], X: np.ndarray) -> np.ndarray:
@@ -59,15 +65,50 @@ def _blend_predict(models: list, weights: list[float], X: np.ndarray) -> np.ndar
     return blend
 
 
+def resolve_model_path(
+    model_dir: str | Path | None = None,
+    *,
+    model_path: str | Path | None = None,
+) -> Path:
+    """Resolve artifact path. Precedence: explicit path → MODEL_PATH → model_dir/MODEL_DIR → default."""
+    if model_path is not None:
+        return Path(model_path)
+    env_path = os.getenv("POKER44_MODEL_PATH")
+    if env_path:
+        return Path(env_path)
+    if model_dir is not None:
+        p = Path(model_dir)
+        if p.is_dir():
+            cand = p / "current.joblib"
+            return cand if cand.exists() else p / "model.joblib"
+        return p
+    env_dir = os.getenv("POKER44_MODEL_DIR")
+    if env_dir:
+        d = Path(env_dir)
+        if d.is_dir():
+            return d / "current.joblib"
+        return d
+    return DEFAULT_MODEL_PATH
+
+
 class CompetitiveMinerModel:
-    """Load joblib: single-head or blend_v1 multi-head artifact."""
+    """Load joblib: single-head or blend_v1 multi-head artifact. Hot-reloads on mtime change."""
 
     def __init__(self, model_path: str | Path | None = None):
-        path = Path(model_path or os.getenv("POKER44_MODEL_PATH") or DEFAULT_MODEL_PATH)
+        path = resolve_model_path(model_path=model_path)
         if not path.exists():
             raise FileNotFoundError(f"Missing competitive model: {path}")
-        payload = joblib.load(path)
         self.path = path
+        self._mtime: float | None = None
+        self._load_from_disk()
+
+    def _load_from_disk(self) -> None:
+        path = self.path
+        payload = joblib.load(path)
+        try:
+            self._mtime = path.stat().st_mtime
+        except OSError:
+            self._mtime = None
         self.metadata = dict(payload.get("metadata") or {})
         self.calibrator = payload.get("calibrator")
         self.threshold = float(self.metadata.get("decision_threshold", 0.5))
@@ -82,23 +123,22 @@ class CompetitiveMinerModel:
 
         if self.kind == "blend_v1" or "heads" in payload:
             self.heads = list(payload["heads"])
-            # For manifest / logging convenience
             self.feature_names = list(self.heads[0].get("feature_names") or [])
             self.models = []
             self.weights = []
             self.feature_set = "blend"
         else:
+            feature_set = str(
+                payload.get("feature_set")
+                or self.metadata.get("feature_set")
+                or "competitive"
+            )
             self.heads = [
                 {
                     "name": "primary",
-                    "feature_set": str(
-                        payload.get("feature_set")
-                        or self.metadata.get("feature_set")
-                        or "competitive"
-                    ),
+                    "feature_set": feature_set,
                     "feature_names": list(
-                        payload.get("feature_names")
-                        or competitive_schema.FEATURE_NAMES
+                        payload.get("feature_names") or _default_feature_names(feature_set)
                     ),
                     "models": payload["models"],
                     "weights": list(
@@ -111,7 +151,18 @@ class CompetitiveMinerModel:
             self.feature_names = self.heads[0]["feature_names"]
             self.models = self.heads[0]["models"]
             self.weights = self.heads[0]["weights"]
-            self.feature_set = self.heads[0]["feature_set"]
+            self.feature_set = feature_set
+
+    def maybe_reload(self) -> bool:
+        """Reload artifact if file mtime changed. Returns True when reloaded."""
+        try:
+            mtime = self.path.stat().st_mtime
+        except OSError:
+            return False
+        if self._mtime is not None and mtime == self._mtime:
+            return False
+        self._load_from_disk()
+        return True
 
     def _vectorize_head(self, head: dict[str, Any], chunks: Sequence[Sequence[dict] | None]) -> np.ndarray:
         schema = _SCHEMAS.get(head["feature_set"], competitive_schema)
@@ -164,7 +215,17 @@ class CompetitiveMinerModel:
         if mode in ("none", "off", "raw"):
             return [round(clamp01(s), 6) for s in scores]
         if mode == "clip_below":
-            return apply_clip_below(scores)
+            allow = os.getenv("POKER44_ALLOW_CLIP_BELOW", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            if not allow:
+                # clip_below zeros threshold_sanity under current reward → refuse by default.
+                mode = "topk_v1"
+            else:
+                return apply_clip_below(scores)
         cfg = self.metadata.get("batch_safety_budget") or {}
         return apply_batch_safety_topk_v1(
             scores,
@@ -176,6 +237,7 @@ class CompetitiveMinerModel:
         )
 
     def score_chunks(self, chunks: Sequence[Sequence[dict] | None]) -> list[float]:
+        self.maybe_reload()
         if not chunks:
             return []
         raw = self._raw_scores(chunks)
@@ -197,18 +259,8 @@ class XgbBotRiskModel(CompetitiveMinerModel):
     """Alias: miner historically named XgbBotRiskModel."""
 
     def __init__(self, model_dir: str | Path | None = None, *, threshold: float | None = None):
-        model_path = None
-        if model_dir is not None:
-            p = Path(model_dir)
-            if p.is_dir():
-                cand = p / "current.joblib"
-                model_path = cand if cand.exists() else p / "model.joblib"
-            else:
-                model_path = p
-        elif os.getenv("POKER44_MODEL_DIR"):
-            d = Path(os.environ["POKER44_MODEL_DIR"])
-            model_path = d / "current.joblib" if d.is_dir() else d
-        super().__init__(model_path)
+        # MODEL_PATH wins over MODEL_DIR when both are set (see resolve_model_path).
+        super().__init__(resolve_model_path(model_dir=model_dir))
         if threshold is not None:
             self.threshold = float(threshold)
 

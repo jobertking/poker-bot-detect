@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-import joblib
 import numpy as np
 from xgboost import Booster, DMatrix, XGBClassifier
 
@@ -25,6 +26,7 @@ if str(ROOT) not in sys.path:
 from features import beat_v3_schema as schema_beat
 from features import chunk_features as schema_v3
 from features import competitive_fn_schema as schema_cfn
+from poker44.artifact_io import atomic_joblib_dump, atomic_write_text, prune_archive, recipe_fingerprint
 from poker44.validator.payload_view import prepare_hand_for_miner
 from scripts.train.train_competitive_v3 import (
     apply_post,
@@ -282,8 +284,8 @@ def main() -> int:
         post = apply_post(raw, calibrator=cand["cal"], logit=cand["logit"])
         return eval_suite(y[hold], post, f"sealed_{sealed_days[0]}_{sealed_days[-1]}")
 
-    # Evaluate top LODO candidates on sealed 7/13-14 (one-shot, no re-select by this)
-    print("\n=== Sealed primary 7/13-14 (fair vs xgb_v3) ===", flush=True)
+    # Evaluate top LODO candidates on sealed days for reporting only (never for selection).
+    print("\n=== Sealed primary 7/13-14 (report only; selection uses LODO) ===", flush=True)
     for cand in candidates[:8]:
         m_seal = sealed_for(cand, sealed_a)
         cand["sealed_713_714"] = m_seal
@@ -297,37 +299,10 @@ def main() -> int:
             flush=True,
         )
 
-    # Pick deploy: prefer sealed beat of xgb_v3; else best sealed reward among top LODO
-    top = candidates[:8]
-    beaters = [
-        c
-        for c in top
-        if c.get("sealed_713_714")
-        and c["sealed_713_714"]["reward"] > base_v3["reward"]
-        and c["sealed_713_714"]["bot_recall_at_5fpr"] >= base_v3["bot_recall_at_5fpr"] - 0.005
-    ]
-    if beaters:
-        beaters.sort(
-            key=lambda c: (
-                c["sealed_713_714"]["reward"],
-                c["sealed_713_714"]["bot_recall_at_5fpr"],
-                c["sel"],
-            ),
-            reverse=True,
-        )
-        best = beaters[0]
-        pick_reason = "beats_xgb_v3_on_sealed_713_714"
-    else:
-        top.sort(
-            key=lambda c: (
-                c.get("sealed_713_714", {}).get("reward", 0.0),
-                c["sel"],
-            ),
-            reverse=True,
-        )
-        best = top[0]
-        pick_reason = "best_sealed_among_top_lodo_not_yet_beating_v3"
-
+    # Deploy pick: best LODO selection_score among candidates (no sealed peek).
+    candidates.sort(key=lambda c: (c["sel"], c["lodo"]["reward"], c["lodo"]["bot_recall_at_5fpr"]), reverse=True)
+    best = candidates[0]
+    pick_reason = "best_lodo_selection_score"
     best["sealed_714_715"] = sealed_for(best, sealed_b)
     print(f"\n>>> SELECTED {best['tag']} ({pick_reason})", flush=True)
     print(
@@ -455,14 +430,15 @@ def main() -> int:
         arch = args.out_dir / "archive"
         arch.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        import shutil
-
         shutil.copy2(out_path, arch / f"current_{stamp}.joblib")
+        prune_archive(arch, keep=int(os.getenv("POKER44_ARCHIVE_KEEP", "30")))
 
-    joblib.dump(artifact, out_path)
+    report["recipe_fingerprint"] = recipe_fingerprint(ROOT)
+    atomic_joblib_dump(artifact, out_path)
     # strip huge blobs from report candidates
-    (args.out_dir / "train_report.json").write_text(json.dumps(report, indent=2) + "\n")
-    (args.out_dir / "threshold.json").write_text(
+    atomic_write_text(args.out_dir / "train_report.json", json.dumps(report, indent=2) + "\n")
+    atomic_write_text(
+        args.out_dir / "threshold.json",
         json.dumps(
             {
                 "threshold": 0.5,
@@ -472,11 +448,12 @@ def main() -> int:
                 "model_version": report["model_version"],
                 "feature_set": feature_set,
                 "beats_xgb_v3_on_713_714": report["beats_xgb_v3_on_713_714"],
+                "recipe_fingerprint": report["recipe_fingerprint"],
                 "model_path": str(out_path),
             },
             indent=2,
         )
-        + "\n"
+        + "\n",
     )
     print(json.dumps({k: report[k] for k in ("selected", "pick_reason", "beats_xgb_v3_on_713_714", "metrics")}, indent=2))
     print(f"Saved {out_path}")

@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from features.competitive_schema import FEATURE_NAMES, extract_chunk_features, features_to_vector
+from poker44.artifact_io import atomic_joblib_dump
 from poker44.batch_calibration import apply_batch_safety_topk_v1, apply_clip_below
 from poker44.score.scoring import reward
 from poker44.validator.payload_view import prepare_hand_for_miner
@@ -304,7 +305,7 @@ def main() -> int:
         "metadata": metadata,
     }
     out_path = args.out_dir / "current.joblib"
-    joblib.dump(artifact, out_path)
+    atomic_joblib_dump(artifact, out_path)
     (args.out_dir / "train_report.json").write_text(json.dumps(report, indent=2) + "\n")
     (args.out_dir / "threshold.json").write_text(
         json.dumps(

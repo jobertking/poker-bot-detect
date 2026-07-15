@@ -46,7 +46,8 @@ def apply_batch_safety_topk_v1(
 
     k = int(max_positive_count)
     if max_positive_fraction > 0.0:
-        k = min(k, max(1, int(math.floor(count * float(max_positive_fraction)))))
+        # Do NOT force k>=1: tiny batches may correctly have zero positives.
+        k = min(k, max(0, int(math.floor(count * float(max_positive_fraction)))))
     k = max(0, min(count, k))
 
     positive_floor = clamp01(positive_floor)

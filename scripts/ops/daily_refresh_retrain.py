@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Fetch new Poker44 benchmark days and retrain competitive model if data changed.
+"""Fetch new Poker44 benchmark days and retrain competitive model if needed.
 
 Exit codes:
-  0 — success (retrained, or already up to date with --no-retrain-if-fresh)
-  2 — fetch/train failure
-  3 — no new data and --fail-if-stale was set
+  0 — success (retrained, or already up to date)
+  2 — fetch/train failure / lock busy
+  3 — remote newer than local when --fail-if-stale
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -20,12 +21,19 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.data.fetch_benchmark import http_get_json, BASE_URL
+from poker44.artifact_io import (
+    DeployLock,
+    examples_fingerprint,
+    read_json,
+    recipe_fingerprint,
+)
+from scripts.data.fetch_benchmark import BASE_URL, http_get_json
 
 DEFAULT_BENCH = ROOT / "data" / "benchmark"
 DEFAULT_MODEL = ROOT / "models" / "competitive"
 DEFAULT_LOG = ROOT / "logs" / "daily_refresh"
 DEFAULT_PYTHON = ROOT / ".venv_ml" / "bin" / "python"
+DEFAULT_LOCK = ROOT / "logs" / "daily_refresh" / "deploy.lock"
 
 
 def local_latest_date(examples: Path) -> str | None:
@@ -63,9 +71,27 @@ def write_run_log(log_dir: Path, payload: dict) -> Path:
     log_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = log_dir / f"run_{stamp}.json"
-    path.write_text(json.dumps(payload, indent=2) + "\n")
-    (log_dir / "latest.json").write_text(json.dumps(payload, indent=2) + "\n")
+    text = json.dumps(payload, indent=2) + "\n"
+    path.write_text(text)
+    (log_dir / "latest.json").write_text(text)
     return path
+
+
+def maybe_reload_miner() -> str | None:
+    """Optional PM2 reload so processes without hot-reload pick up artifact (best-effort)."""
+    name = os.getenv("POKER44_PM2_RELOAD", "").strip()
+    if not name:
+        return None
+    try:
+        proc = subprocess.run(
+            ["pm2", "reload", name],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        return f"pm2_reload:{name}:rc={proc.returncode}"
+    except Exception as exc:
+        return f"pm2_reload_failed:{exc}"
 
 
 def main() -> int:
@@ -75,20 +101,50 @@ def main() -> int:
     ap.add_argument("--log-dir", type=Path, default=DEFAULT_LOG)
     ap.add_argument("--python", type=Path, default=DEFAULT_PYTHON)
     ap.add_argument("--base-url", default=BASE_URL)
-    ap.add_argument("--force-retrain", action="store_true", help="Retrain even if no new dates")
+    ap.add_argument("--force-retrain", action="store_true", help="Retrain even if data/recipe unchanged")
     ap.add_argument("--skip-fetch", action="store_true", help="Skip API fetch (train on local cache)")
-    ap.add_argument("--fail-if-stale", action="store_true", help="Exit 3 if remote has newer day and we skipped fetch")
+    ap.add_argument(
+        "--fail-if-stale",
+        action="store_true",
+        help="Exit 3 if remote latestSourceDate is newer than local cache",
+    )
     ap.add_argument("--holdout-days", type=int, default=2)
     ap.add_argument("--recent-val-days", type=int, default=4)
+    ap.add_argument("--lock-path", type=Path, default=DEFAULT_LOCK)
     args = ap.parse_args()
 
+    lock = DeployLock(args.lock_path)
+    if not lock.acquire(blocking=False):
+        write_run_log(
+            args.log_dir,
+            {
+                "started_at_utc": datetime.now(timezone.utc).isoformat(),
+                "ok": False,
+                "error": f"deploy lock busy: {args.lock_path}",
+            },
+        )
+        print(f"ERROR: another refresh holds {args.lock_path}", flush=True)
+        return 2
+
+    try:
+        return _run_locked(args)
+    finally:
+        lock.release()
+
+
+def _run_locked(args: argparse.Namespace) -> int:
     py = str(args.python if args.python.exists() else sys.executable)
     examples = args.bench_dir / "examples" / "examples.jsonl"
     started = datetime.now(timezone.utc).isoformat()
     local_before = local_latest_date(examples)
     n_before = local_example_count(examples)
+    fp_before = examples_fingerprint(examples) if examples.exists() else ""
+    recipe_now = recipe_fingerprint(ROOT)
+    prev_report = read_json(args.model_dir / "train_report.json")
+    recipe_prev = str(prev_report.get("recipe_fingerprint") or "")
 
     print(f"Local latest={local_before} n={n_before}", flush=True)
+    print(f"Recipe fingerprint={recipe_now[:12]}… prev={recipe_prev[:12] or 'none'}…", flush=True)
 
     remote_latest = None
     try:
@@ -109,7 +165,6 @@ def main() -> int:
             return 2
 
     need_fetch = not args.skip_fetch
-    # Fetch whenever possible so same-day chunk growth is picked up.
     fetched = False
     if need_fetch:
         rc = run(
@@ -141,8 +196,15 @@ def main() -> int:
 
     local_after = local_latest_date(examples)
     n_after = local_example_count(examples)
-    data_changed = (local_after != local_before) or (n_after != n_before)
-    print(f"After fetch latest={local_after} n={n_after} changed={data_changed}", flush=True)
+    fp_after = examples_fingerprint(examples) if examples.exists() else ""
+    data_changed = (fp_after != fp_before) or (local_after != local_before) or (n_after != n_before)
+    recipe_changed = (not recipe_prev) or (recipe_prev != recipe_now)
+    model_missing = not (args.model_dir / "current.joblib").exists()
+    print(
+        f"After fetch latest={local_after} n={n_after} "
+        f"data_changed={data_changed} recipe_changed={recipe_changed}",
+        flush=True,
+    )
 
     if (
         args.fail_if_stale
@@ -162,7 +224,9 @@ def main() -> int:
         )
         return 3
 
-    should_train = args.force_retrain or data_changed or not (args.model_dir / "current.joblib").exists()
+    should_train = (
+        args.force_retrain or data_changed or recipe_changed or model_missing
+    )
     if not should_train:
         payload = {
             "started_at_utc": started,
@@ -174,10 +238,24 @@ def main() -> int:
             "local_latest": local_after,
             "remote_latest": remote_latest,
             "n_examples": n_after,
+            "examples_fingerprint": fp_after,
+            "recipe_fingerprint": recipe_now,
         }
         path = write_run_log(args.log_dir, payload)
         print(f"Up to date; no retrain. Log: {path}", flush=True)
         return 0
+
+    if n_after <= 0:
+        write_run_log(
+            args.log_dir,
+            {
+                "started_at_utc": started,
+                "ok": False,
+                "error": "no labeled examples available for training",
+                "local_after": local_after,
+            },
+        )
+        return 2
 
     rc = run(
         [
@@ -195,26 +273,34 @@ def main() -> int:
         ],
         cwd=ROOT,
     )
-    report = {}
-    report_path = args.model_dir / "train_report.json"
-    if report_path.exists():
-        report = json.loads(report_path.read_text())
+    report = read_json(args.model_dir / "train_report.json") if rc == 0 else {}
+    reload_note = maybe_reload_miner() if rc == 0 else None
     payload = {
         "started_at_utc": started,
         "finished_at_utc": datetime.now(timezone.utc).isoformat(),
         "ok": rc == 0,
         "fetched": fetched,
         "retrained": rc == 0,
-        "fetch_exit": 0 if fetched else None,
         "train_exit": rc,
         "local_before": local_before,
         "local_after": local_after,
         "remote_latest": remote_latest,
         "n_examples_before": n_before,
         "n_examples_after": n_after,
-        "metrics": report.get("metrics"),
+        "data_changed": data_changed,
+        "recipe_changed": recipe_changed,
+        "examples_fingerprint": fp_after,
+        "recipe_fingerprint": recipe_now,
+        "metrics": report.get("metrics") if rc == 0 else None,
         "latest_source_date": report.get("latest_source_date") or local_after,
         "model_dir": str(args.model_dir),
+        "miner_reload": reload_note,
+        "retrain_triggers": {
+            "force": bool(args.force_retrain),
+            "data_changed": data_changed,
+            "recipe_changed": recipe_changed,
+            "model_missing": model_missing,
+        },
     }
     path = write_run_log(args.log_dir, payload)
     if rc != 0:
@@ -228,6 +314,8 @@ def main() -> int:
             f"ap={sealed.get('ap')}",
             flush=True,
         )
+    if reload_note:
+        print(reload_note, flush=True)
     return 0
 
 

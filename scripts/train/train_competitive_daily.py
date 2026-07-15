@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-import joblib
 import numpy as np
 from xgboost import XGBClassifier
 
@@ -23,6 +23,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from features import beat_v3_schema as schema
+from poker44.artifact_io import (
+    atomic_joblib_dump,
+    atomic_write_text,
+    prune_archive,
+    recipe_fingerprint,
+)
 from poker44.validator.payload_view import prepare_hand_for_miner
 from scripts.train.train_competitive_v3 import (
     apply_post,
@@ -151,12 +157,14 @@ def main() -> int:
     model.fit(X, y, sample_weight=w_all)
 
     trained_at = datetime.now(timezone.utc).isoformat()
+    fingerprint = recipe_fingerprint(ROOT)
     report = {
         "trained_at_utc": trained_at,
         "model_name": "poker44-beat-v3",
         "model_version": "7.0.0",
         "n_features": len(names),
         "feature_set": "beat_v3",
+        "recipe_fingerprint": fingerprint,
         "half_life_days": args.half_life_days,
         "score_remap": logit,
         "holdout_dates": holdout_dates,
@@ -195,6 +203,7 @@ def main() -> int:
         "latest_source_date": unique[-1],
         "trained_at_utc": trained_at,
         "framework": "xgb_beat_v3",
+        "recipe_fingerprint": fingerprint,
     }
     artifact = {
         "kind": "single",
@@ -216,11 +225,13 @@ def main() -> int:
         prev_report = args.out_dir / "train_report.json"
         if prev_report.exists():
             shutil.copy2(prev_report, arch / f"train_report_{stamp}.json")
+        prune_archive(arch, keep=int(os.getenv("POKER44_ARCHIVE_KEEP", "30")))
         print(f"Archived previous artifact under {arch}", flush=True)
 
-    joblib.dump(artifact, out_path)
-    (args.out_dir / "train_report.json").write_text(json.dumps(report, indent=2) + "\n")
-    (args.out_dir / "threshold.json").write_text(
+    atomic_joblib_dump(artifact, out_path)
+    atomic_write_text(args.out_dir / "train_report.json", json.dumps(report, indent=2) + "\n")
+    atomic_write_text(
+        args.out_dir / "threshold.json",
         json.dumps(
             {
                 "threshold": 0.5,
@@ -229,11 +240,12 @@ def main() -> int:
                 "model_name": report["model_name"],
                 "model_version": report["model_version"],
                 "latest_source_date": unique[-1],
+                "recipe_fingerprint": fingerprint,
                 "model_path": str(out_path),
             },
             indent=2,
         )
-        + "\n"
+        + "\n",
     )
     print(json.dumps({"latest_source_date": unique[-1], "metrics": report["metrics"]}, indent=2))
     print(f"Saved {out_path}")

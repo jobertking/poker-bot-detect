@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 
 from features import competitive_schema as schema_comp
 from features import merged_schema as schema_merged
+from poker44.artifact_io import atomic_joblib_dump
 from scripts.train.train_competitive_v2 import (
     apply_post,
     eval_suite,
@@ -165,7 +166,7 @@ def main() -> int:
 
     OUT.mkdir(parents=True, exist_ok=True)
     out_path = OUT / "current.joblib"
-    joblib.dump(artifact, out_path)
+    atomic_joblib_dump(artifact, out_path)
     (OUT / "train_report.json").write_text(json.dumps(report, indent=2) + "\n")
     (OUT / "threshold.json").write_text(
         json.dumps(

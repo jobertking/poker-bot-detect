@@ -14,6 +14,7 @@ import bittensor as bt
 
 from poker44.base.miner import BaseMinerNeuron
 from poker44.miner_inference import XgbBotRiskModel
+from poker44.request_logger import RequestLogger
 from poker44.utils.model_manifest import (
     build_local_model_manifest,
     evaluate_manifest_compliance,
@@ -36,6 +37,7 @@ class Miner(BaseMinerNeuron):
         repo_root = Path(__file__).resolve().parents[1]
 
         self.risk_model = XgbBotRiskModel()
+        self._repo_root = repo_root
         bt.logging.info(
             f"Loaded competitive inference model | path={self.risk_model.path} "
             f"threshold={self.risk_model.threshold} "
@@ -47,11 +49,7 @@ class Miner(BaseMinerNeuron):
         runtime_repo_url = (
             self._normalize_repo_url(self._repo_url(repo_root)) or DEFAULT_PUBLIC_REPO_URL
         )
-        artifact_path = Path(
-            getattr(self.risk_model, "path", "")
-            or getattr(self.risk_model, "model_dir", "")
-            or ""
-        )
+        artifact_path = Path(self.risk_model.path)
         artifact_sha256 = (
             self._sha256_file(artifact_path) if artifact_path.is_file() else ""
         )
@@ -90,6 +88,15 @@ class Miner(BaseMinerNeuron):
         )
         self.manifest_compliance = evaluate_manifest_compliance(self.model_manifest)
         self.manifest_digest = manifest_digest(self.model_manifest)
+        self.request_logger = RequestLogger()
+        if self.request_logger.enabled:
+            bt.logging.info(
+                "Validator request disk logging enabled | "
+                f"dir={self.request_logger.log_dir} "
+                f"full_payload={self.request_logger.full_payload} "
+                f"gzip={self.request_logger.gzip_files} "
+                f"max_files={self.request_logger.max_files}"
+            )
         self._log_manifest_startup(repo_root)
         bt.logging.info(f"Axon created: {self.axon}")
 
@@ -198,6 +205,13 @@ class Miner(BaseMinerNeuron):
 
     async def forward(self, synapse: DetectionSynapse) -> DetectionSynapse:
         """Inference: one bot-risk score per received chunk-group."""
+        if self.risk_model.maybe_reload():
+            bt.logging.info(
+                f"Hot-reloaded model | path={self.risk_model.path} "
+                f"version={self.risk_model.model_version} "
+                f"n_features={len(self.risk_model.feature_names)}"
+            )
+            self._refresh_artifact_manifest_fields()
         chunks = synapse.chunks or []
         scores, predictions = self.risk_model.predict(chunks)
         synapse.risk_scores = scores
@@ -208,7 +222,27 @@ class Miner(BaseMinerNeuron):
             f"pred_pos={sum(1 for p in predictions if p)} "
             f"mean_score={sum(scores) / len(scores) if scores else 0.0:.4f}"
         )
+        validator_hotkey = ""
+        if synapse.dendrite is not None and getattr(synapse.dendrite, "hotkey", None):
+            validator_hotkey = str(synapse.dendrite.hotkey)
+        self.request_logger.log(
+            chunks=chunks,
+            risk_scores=scores,
+            predictions=predictions,
+            validator_hotkey=validator_hotkey,
+            extra={"dropped_logs": self.request_logger.dropped},
+        )
         return synapse
+
+    def _refresh_artifact_manifest_fields(self) -> None:
+        artifact_path = Path(self.risk_model.path)
+        self.model_manifest["model_name"] = self.risk_model.model_name
+        self.model_manifest["model_version"] = self.risk_model.model_version
+        if artifact_path.is_file():
+            self.model_manifest["artifact_url"] = str(artifact_path.resolve())
+            self.model_manifest["artifact_sha256"] = self._sha256_file(artifact_path)
+        self.manifest_compliance = evaluate_manifest_compliance(self.model_manifest)
+        self.manifest_digest = manifest_digest(self.model_manifest)
 
     def score_chunk(self, chunk: list) -> float:
         """Sync helper used by local sims/tests."""

@@ -33,6 +33,7 @@ if str(ROOT) not in sys.path:
 
 from features import competitive_schema as schema_comp
 from features import merged_schema as schema_merged
+from poker44.artifact_io import atomic_joblib_dump
 from poker44.batch_calibration import (
     apply_batch_safety_topk_v1,
     apply_threshold_logit_v1,
@@ -472,7 +473,7 @@ def main() -> int:
         "metadata": metadata,
     }
     out_path = args.out_dir / "current.joblib"
-    joblib.dump(artifact, out_path)
+    atomic_joblib_dump(artifact, out_path)
     (args.out_dir / "train_report.json").write_text(json.dumps(report, indent=2) + "\n")
     (args.out_dir / "threshold.json").write_text(
         json.dumps(

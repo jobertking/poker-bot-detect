@@ -28,6 +28,7 @@ if str(ROOT) not in sys.path:
 
 from features import competitive_schema as schema_comp
 from features import selective_schema as schema_sel
+from poker44.artifact_io import atomic_joblib_dump
 from poker44.batch_calibration import apply_batch_safety_topk_v1, apply_threshold_logit_v1
 from poker44.score.scoring import reward
 from poker44.validator.payload_view import prepare_hand_for_miner
@@ -473,7 +474,7 @@ def main() -> int:
     }
     args.out_dir.mkdir(parents=True, exist_ok=True)
     out_path = args.out_dir / "current.joblib"
-    joblib.dump(artifact, out_path)
+    atomic_joblib_dump(artifact, out_path)
     (args.out_dir / "train_report.json").write_text(json.dumps(report, indent=2) + "\n")
     (args.out_dir / "threshold.json").write_text(
         json.dumps(

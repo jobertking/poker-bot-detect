@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -198,40 +199,54 @@ def main() -> int:
     total_hands = 0
     mismatches = 0
 
-    if examples_path.exists():
-        examples_path.unlink()
+    if not releases:
+        print("ERROR: no releases returned from API; keeping existing examples cache", flush=True)
+        return 1
 
-    with examples_path.open("w", encoding="utf-8") as examples_fp:
-        for idx, rel in enumerate(releases, start=1):
-            source_date = rel["sourceDate"]
-            print(f"[{idx}/{len(releases)}] {source_date} ...", flush=True)
-            wrappers = fetch_chunks_for_date(args.base_url, source_date, limit=args.limit)
-            print(f"  wrappers={len(wrappers)} (release chunkCount={rel.get('chunkCount')})", flush=True)
+    tmp_examples = examples_path.with_suffix(".jsonl.tmp")
+    try:
+        with tmp_examples.open("w", encoding="utf-8") as examples_fp:
+            for idx, rel in enumerate(releases, start=1):
+                source_date = rel["sourceDate"]
+                print(f"[{idx}/{len(releases)}] {source_date} ...", flush=True)
+                wrappers = fetch_chunks_for_date(args.base_url, source_date, limit=args.limit)
+                print(f"  wrappers={len(wrappers)} (release chunkCount={rel.get('chunkCount')})", flush=True)
 
-            date_dir = raw_dir / source_date
-            if not args.skip_raw:
-                date_dir.mkdir(parents=True, exist_ok=True)
-
-            for wrapper in wrappers:
-                total_wrappers += 1
-                chunk_hash = wrapper.get("chunkHash") or wrapper.get("chunkId") or f"idx{total_wrappers}"
-                try:
-                    examples = flatten_labeled_examples(wrapper)
-                except ValueError as exc:
-                    mismatches += 1
-                    print(f"  ERROR: {exc}", flush=True)
-                    raise
-
+                date_dir = raw_dir / source_date
                 if not args.skip_raw:
-                    write_json(date_dir / f"{chunk_hash}.json", wrapper)
+                    date_dir.mkdir(parents=True, exist_ok=True)
 
-                for ex in examples:
-                    examples_fp.write(json.dumps(ex, ensure_ascii=False) + "\n")
-                    label_counts[ex["label"]] += 1
-                    split_counts[str(ex.get("split") or "unknown")] += 1
-                    date_counts[source_date] += 1
-                    total_examples += 1
-                    total_hands += int(ex.get("hand_count") or 0)
+                for wrapper in wrappers:
+                    total_wrappers += 1
+                    chunk_hash = wrapper.get("chunkHash") or wrapper.get("chunkId") or f"idx{total_wrappers}"
+                    try:
+                        examples = flatten_labeled_examples(wrapper)
+                    except ValueError as exc:
+                        mismatches += 1
+                        print(f"  ERROR: {exc}", flush=True)
+                        raise
+
+                    if not args.skip_raw:
+                        write_json(date_dir / f"{chunk_hash}.json", wrapper)
+
+                    for ex in examples:
+                        examples_fp.write(json.dumps(ex, ensure_ascii=False) + "\n")
+                        label_counts[ex["label"]] += 1
+                        split_counts[str(ex.get("split") or "unknown")] += 1
+                        date_counts[source_date] += 1
+                        total_examples += 1
+                        total_hands += int(ex.get("hand_count") or 0)
+
+        if total_examples <= 0:
+            print("ERROR: fetch produced 0 examples; keeping existing cache", flush=True)
+            tmp_examples.unlink(missing_ok=True)
+            return 1
+
+        examples_path.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(tmp_examples, examples_path)
+    except Exception:
+        tmp_examples.unlink(missing_ok=True)
+        raise
 
     summary = {
         "fetched_at_utc": datetime.now(timezone.utc).isoformat(),

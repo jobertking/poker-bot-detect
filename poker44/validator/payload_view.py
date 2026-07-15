@@ -452,8 +452,52 @@ def build_miner_payload_hand(hand_payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def is_miner_canonical_hand(hand_payload: Dict[str, Any]) -> bool:
+    """True when payload already looks like build_miner_payload_hand output.
+
+    Validators sanitize before send; prepare is NOT idempotent (seat alias + BB
+    coarse noise re-applied). Skip a second pass when already canonical.
+    """
+    if not isinstance(hand_payload, dict):
+        return False
+    metadata = hand_payload.get("metadata") if isinstance(hand_payload.get("metadata"), dict) else {}
+    if float(metadata.get("bb", -1.0) or -1.0) != float(_VISIBLE_BB):
+        return False
+    if float(metadata.get("sb", -1.0) or -1.0) != float(_VISIBLE_SB):
+        return False
+    if metadata.get("rng_seed_commitment") is not None:
+        return False
+    button = metadata.get("button_seat", None)
+    try:
+        if int(0 if button is None else button) != 0:
+            return False
+    except (TypeError, ValueError):
+        return False
+
+    players = hand_payload.get("players") if isinstance(hand_payload.get("players"), list) else []
+    if not players:
+        return False
+    for player in players:
+        if not isinstance(player, dict):
+            return False
+        uid = str(player.get("player_uid") or "")
+        if not uid.startswith("seat_"):
+            return False
+        if player.get("hole_cards") is not None:
+            return False
+
+    outcome = hand_payload.get("outcome") if isinstance(hand_payload.get("outcome"), dict) else {}
+    if outcome.get("winners"):
+        return False
+    if outcome.get("payouts"):
+        return False
+    return True
+
+
 def prepare_hand_for_miner(hand_payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Project all hands through the same miner-visible canonicalizer."""
+    """Project hands through the miner-visible canonicalizer (idempotent)."""
+    if is_miner_canonical_hand(hand_payload):
+        return hand_payload
     return build_miner_payload_hand(hand_payload)
 
 
@@ -464,7 +508,7 @@ def payload_chunk_signature(
     if not hands:
         return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
-    visible_hands = [build_miner_payload_hand(hand) for hand in hands]
+    visible_hands = [prepare_hand_for_miner(hand) for hand in hands]
     total_calls = 0
     total_checks = 0
     total_raises = 0
