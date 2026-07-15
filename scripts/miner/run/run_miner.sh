@@ -24,6 +24,7 @@ fi
 pm2 delete $PM2_NAME 2>/dev/null || true
 
 export PYTHONPATH="$(pwd)"
+export POKER44_MODEL_DIR="${POKER44_MODEL_DIR:-$(pwd)/models/xgb_v3_holdout}"
 
 MINER_ARGS=(
   --netuid "$NETUID"

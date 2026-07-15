@@ -24,6 +24,10 @@ flightplans/*
 model/*
 
 models/*
+# Keep default miner deploy artifacts tracked
+!models/xgb_v3_holdout/
+!models/xgb_v3_holdout/model.json
+!models/xgb_v3_holdout/threshold.json
 runs/*
 # C extensions
 *.so
@@ -148,6 +152,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv_ml/
 .venv312/
 env/
 venv/
@@ -209,6 +214,9 @@ prueba.dem.zst:Zone.Identifier
 
 # Local large dataset for validator API (do not commit)
 hands_for_validator/poker_hands_from_rar.json
+
+# Public benchmark cache (large; do not commit)
+data/benchmark/
 
 # Local Weights & Biases runs/artifacts
 wandb/

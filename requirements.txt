@@ -4,5 +4,6 @@ bittensor
 python-dotenv>=1.0
 numpy>=1.24
 scikit-learn>=1.3
+xgboost>=2.0
 pandas>=2.3.3
 wandb>=0.19

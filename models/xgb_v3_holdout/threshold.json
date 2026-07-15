@@ -1,0 +1,8 @@
+{
+  "threshold": 0.5,
+  "model_name": "poker44-xgb-v3-feat",
+  "model_version": "3.0.0-features",
+  "n_features": 178,
+  "recommended": "models/xgb_v3_holdout/model.json",
+  "note": "Use threshold 0.5 for balanced bot/human accuracy on unseen holdout days."
+}

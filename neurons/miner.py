@@ -1,15 +1,15 @@
-"""Reference Poker44 miner with simple chunk-level behavioral heuristics."""
+"""Poker44 miner: XGBoost inference on validator DetectionSynapse requests."""
 
 # from __future__ import annotations
 
 import time
-from collections import Counter
 from pathlib import Path
 from typing import Tuple
 
 import bittensor as bt
 
 from poker44.base.miner import BaseMinerNeuron
+from poker44.miner_inference import XgbBotRiskModel
 from poker44.utils.model_manifest import (
     build_local_model_manifest,
     evaluate_manifest_compliance,
@@ -20,50 +20,58 @@ from poker44.validator.synapse import DetectionSynapse
 
 class Miner(BaseMinerNeuron):
     """
-    Reference heuristic miner.
+    Production-style miner: load trained XGBoost and run inference per chunk.
 
-    It aggregates simple behavior signals over each chunk and returns a bot-risk
-    score per chunk. The goal is not SOTA accuracy, but a deterministic and
-    explainable baseline that is meaningfully better than random.
+    Validators send DetectionSynapse(chunks=...); miner returns risk_scores.
     """
 
     def __init__(self, config=None):
         super(Miner, self).__init__(config=config)
-        bt.logging.info("🤖 Heuristic Poker44 Miner started")
         repo_root = Path(__file__).resolve().parents[1]
+
+        self.risk_model = XgbBotRiskModel()
+        bt.logging.info(
+            f"Loaded XGBoost inference model | dir={self.risk_model.model_dir} "
+            f"threshold={self.risk_model.threshold} "
+            f"n_features={len(self.risk_model.feature_names)}"
+        )
+
+        impl_files = [
+            Path(__file__).resolve(),
+            repo_root / "poker44" / "miner_inference.py",
+            repo_root / "features" / "chunk_features.py",
+        ]
         self.model_manifest = build_local_model_manifest(
             repo_root=repo_root,
-            implementation_files=[Path(__file__).resolve()],
+            implementation_files=impl_files,
             defaults={
-                "model_name": "poker44-reference-heuristic",
-                "model_version": "1",
-                "framework": "python-heuristic",
+                "model_name": self.risk_model.model_name,
+                "model_version": self.risk_model.model_version,
+                "framework": "xgboost",
                 "license": "MIT",
                 "repo_url": "https://github.com/Poker44/Poker44-subnet",
-                "notes": "Reference heuristic miner shipped with the Poker44 subnet.",
+                "notes": (
+                    "XGBoost chunk-level bot-risk miner. "
+                    f"Artifacts under {self.risk_model.model_dir}."
+                ),
                 "open_source": True,
                 "inference_mode": "remote",
                 "training_data_statement": (
-                    "Reference heuristic miner. No training step. Uses only runtime chunk features."
+                    "Trained on Poker44 public benchmark API labeled chunk-groups "
+                    "(https://api.poker44.net/api/v1/benchmark). "
+                    "Does not use validator-only live eval labels."
                 ),
-                "training_data_sources": ["none"],
+                "training_data_sources": [
+                    "https://api.poker44.net/api/v1/benchmark"
+                ],
                 "private_data_attestation": (
-                    "This reference miner does not train on validator-only evaluation data."
+                    "This miner does not train on validator-only evaluation data."
                 ),
             },
         )
         self.manifest_compliance = evaluate_manifest_compliance(self.model_manifest)
         self.manifest_digest = manifest_digest(self.model_manifest)
         self._log_manifest_startup(repo_root)
-        
-        # # Attach handlers after initialization
-        # self.axon.attach(
-        #     forward_fn = self.forward,
-        #     blacklist_fn = self.blacklist,
-        #     priority_fn = self.priority,
-        # )
-        # bt.logging.info("Attaching forward function to miner axon.")
-        
         bt.logging.info(f"Axon created: {self.axon}")
 
     def _log_manifest_startup(self, repo_root: Path) -> None:
@@ -89,80 +97,35 @@ class Miner(BaseMinerNeuron):
         )
 
     async def forward(self, synapse: DetectionSynapse) -> DetectionSynapse:
-        """Assign one deterministic bot-risk score per chunk."""
+        """Inference: one bot-risk score per received chunk-group."""
         chunks = synapse.chunks or []
-        scores = [self.score_chunk(chunk) for chunk in chunks]
+        scores, predictions = self.risk_model.predict(chunks)
         synapse.risk_scores = scores
-        synapse.predictions = [s >= 0.5 for s in scores]
+        synapse.predictions = predictions
         synapse.model_manifest = dict(self.model_manifest)
-        bt.logging.info(f"Miner Predctions: {synapse.predictions}")
-        bt.logging.info(f"Scored {len(chunks)} chunks with heuristic risks.")
+        bt.logging.info(
+            f"Inference scored {len(chunks)} chunks | "
+            f"pred_pos={sum(1 for p in predictions if p)} "
+            f"mean_score={sum(scores) / len(scores) if scores else 0.0:.4f}"
+        )
         return synapse
 
-    @staticmethod
-    def _clamp01(value: float) -> float:
-        return max(0.0, min(1.0, value))
-
-    @classmethod
-    def _score_hand(cls, hand: dict) -> float:
-        actions = hand.get("actions") or []
-        players = hand.get("players") or []
-        streets = hand.get("streets") or []
-        outcome = hand.get("outcome") or {}
-
-        action_counts = Counter(action.get("action_type") for action in actions)
-        meaningful_actions = max(
-            1,
-            sum(
-                action_counts.get(kind, 0)
-                for kind in ("call", "check", "bet", "raise", "fold")
-            ),
-        )
-
-        call_ratio = action_counts.get("call", 0) / meaningful_actions
-        check_ratio = action_counts.get("check", 0) / meaningful_actions
-        fold_ratio = action_counts.get("fold", 0) / meaningful_actions
-        raise_ratio = action_counts.get("raise", 0) / meaningful_actions
-        street_depth = len(streets) / 3.0
-        showdown_flag = 1.0 if outcome.get("showdown") else 0.0
-
-        player_count_signal = 0.0
-        if players:
-            player_count_signal = (6 - min(len(players), 6)) / 4.0
-
-        score = 0.0
-        score += 0.32 * street_depth
-        score += 0.22 * showdown_flag
-        score += 0.18 * cls._clamp01(call_ratio / 0.35)
-        score += 0.12 * cls._clamp01(check_ratio / 0.30)
-        score += 0.08 * cls._clamp01(player_count_signal)
-        score -= 0.18 * cls._clamp01(fold_ratio / 0.55)
-        score -= 0.10 * cls._clamp01(raise_ratio / 0.20)
-
-        return cls._clamp01(score)
-
-    @classmethod
-    def score_chunk(cls, chunk: list[dict]) -> float:
-        if not chunk:
-            return 0.5
-
-        hand_scores = [cls._score_hand(hand) for hand in chunk]
-        avg_score = sum(hand_scores) / len(hand_scores)
-
-        return round(cls._clamp01(avg_score), 6)
+    def score_chunk(self, chunk: list) -> float:
+        """Sync helper used by local sims/tests."""
+        return self.risk_model.score_chunk(chunk)
 
     async def blacklist(self, synapse: DetectionSynapse) -> Tuple[bool, str]:
-        """Determine whether to blacklist incoming requests."""
         return self.common_blacklist(synapse)
 
     async def priority(self, synapse: DetectionSynapse) -> float:
-        """Assign priority based on caller's stake."""
         return self.caller_priority(synapse)
 
 
 if __name__ == "__main__":
     with Miner() as miner:
-        bt.logging.info("Random miner running...")
+        bt.logging.info("XGBoost Poker44 miner running (inference mode)...")
         while True:
-            bt.logging.info(f"Miner UID: {miner.uid} | Incentive: {miner.metagraph.I[miner.uid]}")
+            bt.logging.info(
+                f"Miner UID: {miner.uid} | Incentive: {miner.metagraph.I[miner.uid]}"
+            )
             time.sleep(5 * 60)
