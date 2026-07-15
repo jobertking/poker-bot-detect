@@ -24,7 +24,9 @@ fi
 pm2 delete $PM2_NAME 2>/dev/null || true
 
 export PYTHONPATH="$(pwd)"
-export POKER44_MODEL_DIR="${POKER44_MODEL_DIR:-$(pwd)/models/xgb_v3_holdout}"
+export POKER44_MODEL_PATH="${POKER44_MODEL_PATH:-$(pwd)/models/competitive/current.joblib}"
+export POKER44_MODEL_DIR="${POKER44_MODEL_DIR:-$(pwd)/models/competitive}"
+export POKER44_BATCH_CALIBRATION="${POKER44_BATCH_CALIBRATION:-topk_v1}"
 
 MINER_ARGS=(
   --netuid "$NETUID"

@@ -1,10 +1,14 @@
-"""Poker44 miner: XGBoost inference on validator DetectionSynapse requests."""
+"""Poker44 miner: competitive ensemble inference on DetectionSynapse requests."""
 
 # from __future__ import annotations
 
+import hashlib
+import re
+import subprocess
 import time
 from pathlib import Path
-from typing import Tuple
+from typing import List, Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 import bittensor as bt
 
@@ -17,10 +21,12 @@ from poker44.utils.model_manifest import (
 )
 from poker44.validator.synapse import DetectionSynapse
 
+DEFAULT_PUBLIC_REPO_URL = "https://github.com/jobertking/poker-bot-detect"
+
 
 class Miner(BaseMinerNeuron):
     """
-    Production-style miner: load trained XGBoost and run inference per chunk.
+    Production miner: competitive ensemble + calibration + batch top-K safety.
 
     Validators send DetectionSynapse(chunks=...); miner returns risk_scores.
     """
@@ -31,33 +37,46 @@ class Miner(BaseMinerNeuron):
 
         self.risk_model = XgbBotRiskModel()
         bt.logging.info(
-            f"Loaded XGBoost inference model | dir={self.risk_model.model_dir} "
+            f"Loaded competitive inference model | path={self.risk_model.path} "
             f"threshold={self.risk_model.threshold} "
+            f"batch={self.risk_model.batch_mode} "
             f"n_features={len(self.risk_model.feature_names)}"
         )
 
-        impl_files = [
-            Path(__file__).resolve(),
-            repo_root / "poker44" / "miner_inference.py",
-            repo_root / "features" / "chunk_features.py",
-        ]
+        runtime_commit = self._repo_head(repo_root)
+        runtime_repo_url = (
+            self._normalize_repo_url(self._repo_url(repo_root)) or DEFAULT_PUBLIC_REPO_URL
+        )
+        artifact_path = Path(
+            getattr(self.risk_model, "path", "")
+            or getattr(self.risk_model, "model_dir", "")
+            or ""
+        )
+        artifact_sha256 = (
+            self._sha256_file(artifact_path) if artifact_path.is_file() else ""
+        )
         self.model_manifest = build_local_model_manifest(
             repo_root=repo_root,
-            implementation_files=impl_files,
+            implementation_files=self._implementation_files(repo_root),
             defaults={
                 "model_name": self.risk_model.model_name,
                 "model_version": self.risk_model.model_version,
-                "framework": "xgboost",
+                "framework": "beat-v3-xgb",
                 "license": "MIT",
-                "repo_url": "https://github.com/Poker44/Poker44-subnet",
+                "repo_url": runtime_repo_url,
+                "repo_commit": runtime_commit,
+                "artifact_url": str(artifact_path.resolve()) if artifact_path.is_file() else "",
+                "artifact_sha256": artifact_sha256,
                 "notes": (
-                    "XGBoost chunk-level bot-risk miner. "
-                    f"Artifacts under {self.risk_model.model_dir}."
+                    "Beat-v3 miner: competitive+FN+v3 features, capacity XGB, "
+                    "sanitize + LODO cal + top-K. Beats xgb_v3_holdout on sealed 7/13-14 reward. "
+                    f"Artifact: {artifact_path}."
                 ),
                 "open_source": True,
                 "inference_mode": "remote",
                 "training_data_statement": (
                     "Trained on Poker44 public benchmark API labeled chunk-groups "
+                    "after prepare_hand_for_miner sanitization "
                     "(https://api.poker44.net/api/v1/benchmark). "
                     "Does not use validator-only live eval labels."
                 ),
@@ -74,11 +93,92 @@ class Miner(BaseMinerNeuron):
         self._log_manifest_startup(repo_root)
         bt.logging.info(f"Axon created: {self.axon}")
 
+    @classmethod
+    def _implementation_files(cls, repo_root: Path) -> List[Path]:
+        files = [Path(__file__).resolve()]
+        for relative in (
+            "poker44/miner_inference.py",
+            "poker44/batch_calibration.py",
+            "features/competitive_features.py",
+            "features/competitive_schema.py",
+            "features/fn_patches.py",
+            "features/competitive_fn_schema.py",
+            "features/beat_v3_schema.py",
+            "features/chunk_features.py",
+            "features/merged_schema.py",
+        ):
+            candidate = repo_root / relative
+            if candidate.exists():
+                files.append(candidate)
+        return files
+
+    @staticmethod
+    def _repo_head(repo_root: Path) -> str:
+        try:
+            completed = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo_root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return completed.stdout.strip()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _repo_url(repo_root: Path) -> str:
+        try:
+            completed = subprocess.run(
+                ["git", "config", "--get", "remote.origin.url"],
+                cwd=repo_root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return completed.stdout.strip()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _normalize_repo_url(url: str) -> str:
+        cleaned = str(url or "").strip()
+        if not cleaned:
+            return ""
+        if cleaned.startswith("git@"):
+            host_path = cleaned.split(":", 1)
+            if len(host_path) == 2:
+                host = host_path[0][4:]
+                path = host_path[1]
+                if path.endswith(".git"):
+                    path = path[:-4]
+                return f"https://{host}/{path}"
+        # Strip embedded credentials (user:token@host) before publishing.
+        cleaned = re.sub(r"https?://[^/@]+@", "https://", cleaned)
+        if cleaned.endswith(".git"):
+            cleaned = cleaned[:-4]
+        parts = urlsplit(cleaned)
+        if parts.scheme and parts.netloc:
+            cleaned = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+        return cleaned.rstrip("/")
+
+    @staticmethod
+    def _sha256_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+
     def _log_manifest_startup(self, repo_root: Path) -> None:
         bt.logging.info("Open-sourced miner manifest standard active for this miner.")
         bt.logging.info(
             f"Miner transparency status: {self.manifest_compliance['status']} "
-            f"(missing_fields={self.manifest_compliance['missing_fields']})"
+            f"(missing_fields={self.manifest_compliance['missing_fields']} "
+            f"policy_violations={self.manifest_compliance.get('policy_violations', [])})"
         )
         bt.logging.info(
             f"Manifest summary | model={self.model_manifest.get('model_name', '')} "

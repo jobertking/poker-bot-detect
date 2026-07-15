@@ -16,6 +16,7 @@ miner_env/
 miner_env/*
 poker44_env/*
 runs/
+logs/
 ~
 ~/*
 output.png
@@ -28,6 +29,11 @@ models/*
 !models/xgb_v3_holdout/
 !models/xgb_v3_holdout/model.json
 !models/xgb_v3_holdout/threshold.json
+!models/competitive/
+!models/competitive/current.joblib
+!models/competitive/threshold.json
+!models/competitive/train_report.json
+models/competitive/archive/
 runs/*
 # C extensions
 *.so

@@ -1,0 +1,10 @@
+{
+  "threshold": 0.5,
+  "batch_calibration": "topk_v1",
+  "score_remap": null,
+  "model_name": "poker44-beat-v3",
+  "model_version": "7.0.0",
+  "feature_set": "beat_v3",
+  "beats_xgb_v3_on_713_714": true,
+  "model_path": "models/competitive/current.joblib"
+}
