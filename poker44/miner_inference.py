@@ -10,6 +10,7 @@ import joblib
 import numpy as np
 
 from features import (
+    beat_v3_coherent_schema,
     beat_v3_schema,
     chunk_features,
     competitive_fn_schema,
@@ -32,6 +33,7 @@ _SCHEMAS = {
     "competitive": competitive_schema,
     "competitive_fn": competitive_fn_schema,
     "beat_v3": beat_v3_schema,
+    "beat_v3_coherent": beat_v3_coherent_schema,
     "merged": merged_schema,
     "selective": selective_schema,
     "v3": chunk_features,
@@ -63,6 +65,31 @@ def _blend_predict(models: list, weights: list[float], X: np.ndarray) -> np.ndar
     if wsum > 0:
         blend /= wsum
     return blend
+
+
+def within_batch_percentile(values: np.ndarray) -> np.ndarray:
+    """Average-rank percentiles in (0,1) within one request. Tie-safe, no scipy."""
+    arr = np.asarray(values, dtype=np.float64)
+    n = arr.size
+    if n == 0:
+        return arr
+    if n == 1:
+        return np.array([0.5], dtype=np.float64)
+    order = np.argsort(arr, kind="mergesort")
+    sorted_v = arr[order]
+    base = np.arange(1, n + 1, dtype=np.float64)
+    ranks_sorted = base.copy()
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and sorted_v[j + 1] == sorted_v[i]:
+            j += 1
+        if j > i:
+            ranks_sorted[i : j + 1] = (base[i] + base[j]) / 2.0
+        i = j + 1
+    ranks = np.empty(n, dtype=np.float64)
+    ranks[order] = ranks_sorted
+    return (ranks - 0.5) / n
 
 
 def resolve_model_path(
@@ -121,7 +148,27 @@ class CompetitiveMinerModel:
         self.model_version = str(self.metadata.get("model_version", "5.1.0"))
         self.kind = str(payload.get("kind") or self.metadata.get("artifact_kind") or "single")
 
-        if self.kind == "blend_v1" or "heads" in payload:
+        if self.kind == "rank_blend_v1" or "branches" in payload:
+            self.kind = "rank_blend_v1"
+            self.branches = list(payload["branches"])
+            feature_set = str(
+                payload.get("feature_set")
+                or self.metadata.get("feature_set")
+                or "beat_v3_coherent"
+            )
+            self.feature_set = feature_set
+            self.feature_names = list(
+                payload.get("feature_names")
+                or self.branches[0].get("feature_names")
+                or _default_feature_names(feature_set)
+            )
+            self.min_rank_batch = int(
+                payload.get("min_rank_batch", self.metadata.get("min_rank_batch", 8))
+            )
+            self.heads = []
+            self.models = []
+            self.weights = []
+        elif self.kind == "blend_v1" or "heads" in payload:
             self.heads = list(payload["heads"])
             self.feature_names = list(self.heads[0].get("feature_names") or [])
             self.models = []
@@ -164,10 +211,15 @@ class CompetitiveMinerModel:
         self._load_from_disk()
         return True
 
-    def _vectorize_head(self, head: dict[str, Any], chunks: Sequence[Sequence[dict] | None]) -> np.ndarray:
-        schema = _SCHEMAS.get(head["feature_set"], competitive_schema)
+    def _vectorize(
+        self,
+        feature_set: str,
+        feature_names: Sequence[str],
+        chunks: Sequence[Sequence[dict] | None],
+    ) -> np.ndarray:
+        schema = _SCHEMAS.get(feature_set, competitive_schema)
         extract = schema.extract_chunk_features
-        names = list(head["feature_names"])
+        names = list(feature_names)
         rows = []
         for chunk in chunks:
             sanitized = sanitize_chunk(chunk)
@@ -177,6 +229,31 @@ class CompetitiveMinerModel:
                 feat = extract(sanitized)
             rows.append([float(feat.get(name, 0.0)) for name in names])
         return np.asarray(rows, dtype=np.float64)
+
+    def _vectorize_head(self, head: dict[str, Any], chunks: Sequence[Sequence[dict] | None]) -> np.ndarray:
+        return self._vectorize(head["feature_set"], head["feature_names"], chunks)
+
+    def _rank_blend_scores(self, chunks: Sequence[Sequence[dict] | None]) -> np.ndarray:
+        X = self._vectorize(self.feature_set, self.feature_names, chunks)
+        n = X.shape[0]
+        if n == 0:
+            return np.asarray([], dtype=np.float64)
+        probs = []
+        weights = []
+        for branch in self.branches:
+            model = branch["model"]
+            scaler = branch.get("scaler")
+            X_in = scaler.transform(X) if scaler is not None else X
+            probs.append(model.predict_proba(X_in)[:, 1])
+            weights.append(float(branch.get("weight", 1.0)))
+        weights_arr = np.asarray(weights, dtype=np.float64)
+        wsum = float(weights_arr.sum()) or 1.0
+        if n >= self.min_rank_batch:
+            # Equalize branch scales via within-request percentiles before fusing.
+            matrix = np.vstack([within_batch_percentile(p) for p in probs])
+        else:
+            matrix = np.vstack(probs)
+        return (weights_arr[:, None] * matrix).sum(axis=0) / wsum
 
     def _raw_scores(self, chunks: Sequence[Sequence[dict] | None]) -> np.ndarray:
         if not chunks:
@@ -240,6 +317,10 @@ class CompetitiveMinerModel:
         self.maybe_reload()
         if not chunks:
             return []
+        if self.kind == "rank_blend_v1":
+            # Fused rank scores are already in [0,1]; skip prob calibration/remap.
+            raw = self._rank_blend_scores(chunks)
+            return self._batch_postprocess([float(x) for x in raw])
         raw = self._raw_scores(chunks)
         cal = self._calibrate(raw)
         remapped = self._apply_score_remap([float(x) for x in cal])

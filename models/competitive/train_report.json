@@ -1,12 +1,16 @@
 {
-  "trained_at_utc": "2026-07-16T03:24:06.513246+00:00",
-  "model_name": "poker44-beat-v3",
-  "model_version": "7.0.0",
-  "n_features": 483,
-  "feature_set": "beat_v3",
-  "recipe_fingerprint": "09299b383fc701a8676ddab33bd39792880ff221eb995552ec0b0d5b0da9c5ec",
+  "trained_at_utc": "2026-07-16T17:17:40.135352+00:00",
+  "model_name": "poker44-beat-v3-coherent",
+  "model_version": "8.0.0",
+  "n_features": 951,
+  "feature_set": "beat_v3_coherent",
+  "recipe_fingerprint": "daa3dd83d45e09b4406c035284ac1c05289d29aa11bd1e6187870e718d65204b",
   "half_life_days": 6.0,
-  "score_remap": null,
+  "score_remap": {
+    "kind": "threshold_logit_v1",
+    "threshold": 0.52,
+    "temperature": 0.05
+  },
   "holdout_dates": [
     "2026-07-15",
     "2026-07-16"
@@ -19,57 +23,92 @@
   ],
   "latest_source_date": "2026-07-16",
   "benchmark_n": 2176,
-  "label_counts": {
-    "all": {
-      "0": 1088,
-      "1": 1088
+  "augmentation": {
+    "config": {
+      "large_ratio": 1.25,
+      "medium_ratio": 0.4,
+      "sources_per_merge": 3,
+      "large_min_hands": 80,
+      "large_max_hands": 100,
+      "medium_min_hands": 50,
+      "medium_max_hands": 75
     },
-    "holdout": {
-      "1": 142,
-      "0": 142
+    "pool_stats": {
+      "original": 1892,
+      "large": 2365,
+      "medium": 757,
+      "full_total": 5014
+    },
+    "deploy_stats": {
+      "original": 2176,
+      "large": 2720,
+      "medium": 870,
+      "full_total": 5766
     }
+  },
+  "gate": {
+    "candidate_live_topk100": 0.9558824783255212,
+    "current_live_topk100": 0.9502893085759921,
+    "current_version": "7.1.0",
+    "gain": 0.005593169749529059,
+    "min_gain": 0.003,
+    "deployed": true,
+    "forced": false
   },
   "metrics": {
     "lodo": {
       "name": "lodo",
-      "n": 574,
-      "ap": 0.9787411138579319,
-      "roc_auc": 0.980550935424735,
-      "reward": 0.9612005048328546,
-      "bot_recall_at_5fpr": 0.8954703832752613,
-      "hard_bot_recall@0.5": 0.9198606271777003,
-      "hard_fpr@0.5": 0.06968641114982578,
-      "overall_acc@0.5": 0.9250871080139372,
+      "n": 2605,
+      "ap": 0.9721057689400923,
+      "roc_auc": 0.9664961974519215,
+      "reward": 0.9523617304454294,
+      "bot_recall_at_5fpr": 0.8737490377213241,
+      "hard_bot_recall@0.5": 0.8860662047729022,
+      "hard_fpr@0.5": 0.05972434915773354,
+      "overall_acc@0.5": 0.9132437619961612,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     },
-    "lodo_selection_score": 0.9362168174915806,
-    "holdout_sealed": {
-      "name": "holdout_sealed",
+    "lodo_selection_score": 0.9232921282125558,
+    "candidate_live_shaped": {
+      "name": "candidate_live_shaped",
       "n": 284,
-      "ap": 0.9880208867723086,
-      "roc_auc": 0.986064272961714,
-      "reward": 0.9789059019196037,
-      "bot_recall_at_5fpr": 0.9436619718309859,
-      "hard_bot_recall@0.5": 0.9366197183098591,
-      "hard_fpr@0.5": 0.035211267605633804,
-      "overall_acc@0.5": 0.9507042253521126,
+      "ap": 0.9705992834482544,
+      "roc_auc": 0.9612676056338029,
+      "reward": 0.9559069323054806,
+      "bot_recall_at_5fpr": 0.8873239436619719,
+      "hard_bot_recall@0.5": 0.8943661971830986,
+      "hard_fpr@0.5": 0.07746478873239436,
+      "overall_acc@0.5": 0.9084507042253521,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     },
-    "holdout_sealed_topk": {
-      "name": "topk_frac_0.125_bs40",
+    "candidate_live_shaped_topk100": {
+      "name": "topk_frac_0.125_bs100",
       "n": 284,
-      "ap": 0.987976545512576,
-      "roc_auc": 0.986064272961714,
-      "reward": 0.9788903824786973,
-      "bot_recall_at_5fpr": 0.9436619718309859,
-      "hard_bot_recall@0.5": 0.24647887323943662,
+      "ap": 0.9705294149340851,
+      "roc_auc": 0.9614163856377702,
+      "reward": 0.9558824783255212,
+      "bot_recall_at_5fpr": 0.8873239436619719,
+      "hard_bot_recall@0.5": 0.23943661971830985,
       "hard_fpr@0.5": 0.0,
-      "overall_acc@0.5": 0.6232394366197183,
+      "overall_acc@0.5": 0.6197183098591549,
+      "threshold_sanity": 1.0,
+      "human_safety": 1.0
+    },
+    "current_live_shaped": {
+      "name": "live_model_bs100",
+      "n": 284,
+      "ap": 0.9726575818468993,
+      "roc_auc": 0.9669956357865503,
+      "reward": 0.9502893085759921,
+      "bot_recall_at_5fpr": 0.8661971830985915,
+      "hard_bot_recall@0.5": 0.23943661971830985,
+      "hard_fpr@0.5": 0.0,
+      "overall_acc@0.5": 0.6197183098591549,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     }
   },
-  "selection_policy": "daily recipe: beat_v3 (comp+FN+v3) capacity XGB + LODO; holdout sealed; deploy all"
+  "selection_policy": "beat_v3 + coherent + large-chunk aug; deploy ONLY if candidate beats current live model on live-shaped topk100 by >= min_gain"
 }

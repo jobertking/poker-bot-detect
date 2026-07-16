@@ -111,8 +111,11 @@ class Miner(BaseMinerNeuron):
             "features/fn_patches.py",
             "features/competitive_fn_schema.py",
             "features/beat_v3_schema.py",
+            "features/beat_v3_coherent_schema.py",
+            "features/coherent_features.py",
             "features/chunk_features.py",
             "features/merged_schema.py",
+            "poker44/large_chunk_augment.py",
         ):
             candidate = repo_root / relative
             if candidate.exists():

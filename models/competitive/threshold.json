@@ -1,10 +1,14 @@
 {
   "threshold": 0.5,
   "batch_calibration": "topk_v1",
-  "score_remap": null,
-  "model_name": "poker44-beat-v3",
-  "model_version": "7.0.0",
+  "score_remap": {
+    "kind": "threshold_logit_v1",
+    "threshold": 0.52,
+    "temperature": 0.05
+  },
+  "model_name": "poker44-beat-v3-coherent",
+  "model_version": "8.0.0",
   "latest_source_date": "2026-07-16",
-  "recipe_fingerprint": "09299b383fc701a8676ddab33bd39792880ff221eb995552ec0b0d5b0da9c5ec",
+  "recipe_fingerprint": "daa3dd83d45e09b4406c035284ac1c05289d29aa11bd1e6187870e718d65204b",
   "model_path": "/smile/poker/poker-bot-detect/models/competitive/current.joblib"
 }

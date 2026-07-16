@@ -17,12 +17,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 RECIPE_FILES = (
     "scripts/train/train_competitive_daily.py",
     "scripts/train/train_competitive_v3.py",
+    "scripts/train/train_beat_v3_coherent.py",
+    "scripts/train/train_rank_ensemble.py",
     "features/beat_v3_schema.py",
+    "features/beat_v3_coherent_schema.py",
+    "features/coherent_features.py",
     "features/competitive_fn_schema.py",
     "features/fn_patches.py",
     "features/competitive_schema.py",
     "features/competitive_features.py",
     "poker44/batch_calibration.py",
+    "poker44/large_chunk_augment.py",
     "poker44/miner_inference.py",
     "poker44/validator/payload_view.py",
 )
