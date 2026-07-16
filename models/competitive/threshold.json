@@ -4,7 +4,7 @@
   "score_remap": null,
   "model_name": "poker44-beat-v3",
   "model_version": "7.0.0",
-  "feature_set": "beat_v3",
-  "beats_xgb_v3_on_713_714": true,
-  "model_path": "models/competitive/current.joblib"
+  "latest_source_date": "2026-07-16",
+  "recipe_fingerprint": "09299b383fc701a8676ddab33bd39792880ff221eb995552ec0b0d5b0da9c5ec",
+  "model_path": "/smile/poker/poker-bot-detect/models/competitive/current.joblib"
 }

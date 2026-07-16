@@ -1,246 +1,75 @@
 {
-  "trained_at_utc": "2026-07-15T07:03:02.445619+00:00",
+  "trained_at_utc": "2026-07-16T03:24:06.513246+00:00",
   "model_name": "poker44-beat-v3",
   "model_version": "7.0.0",
-  "selected": "beat|v3ish|hard=-|x1.0",
-  "pick_reason": "beats_xgb_v3_on_sealed_713_714",
-  "feature_set": "beat_v3",
   "n_features": 483,
-  "cfg": "v3ish",
-  "hard_days": [],
-  "hard_mult": 1.0,
+  "feature_set": "beat_v3",
+  "recipe_fingerprint": "09299b383fc701a8676ddab33bd39792880ff221eb995552ec0b0d5b0da9c5ec",
+  "half_life_days": 6.0,
   "score_remap": null,
-  "xgb_v3_baseline_713_714": {
-    "name": "xgb_v3_native_7/13-14",
-    "n": 304,
-    "ap": 0.9724409799228031,
-    "roc_auc": 0.969226108033241,
-    "reward": 0.9412315359554373,
-    "bot_recall_at_5fpr": 0.8421052631578947,
-    "hard_bot_recall@0.5": 0.9144736842105263,
-    "hard_fpr@0.5": 0.10526315789473684,
-    "overall_acc@0.5": 0.9046052631578947,
-    "threshold_sanity": 0.9941520467836258,
-    "human_safety": 0.9941520467836258
-  },
-  "lodo_dates": [
-    "2026-07-09",
-    "2026-07-10",
-    "2026-07-11",
-    "2026-07-12"
+  "holdout_dates": [
+    "2026-07-15",
+    "2026-07-16"
   ],
+  "recent_lodo_dates": [
+    "2026-07-11",
+    "2026-07-12",
+    "2026-07-13",
+    "2026-07-14"
+  ],
+  "latest_source_date": "2026-07-16",
+  "benchmark_n": 2176,
+  "label_counts": {
+    "all": {
+      "0": 1088,
+      "1": 1088
+    },
+    "holdout": {
+      "1": 142,
+      "0": 142
+    }
+  },
   "metrics": {
     "lodo": {
       "name": "lodo",
-      "n": 548,
-      "ap": 0.9741566330924644,
-      "roc_auc": 0.9715088710107092,
-      "reward": 0.9460643106334573,
-      "bot_recall_at_5fpr": 0.8503649635036497,
-      "hard_bot_recall@0.5": 0.916058394160584,
-      "hard_fpr@0.5": 0.08394160583941605,
-      "overall_acc@0.5": 0.916058394160584,
+      "n": 574,
+      "ap": 0.9787411138579319,
+      "roc_auc": 0.980550935424735,
+      "reward": 0.9612005048328546,
+      "bot_recall_at_5fpr": 0.8954703832752613,
+      "hard_bot_recall@0.5": 0.9198606271777003,
+      "hard_fpr@0.5": 0.06968641114982578,
+      "overall_acc@0.5": 0.9250871080139372,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     },
-    "sealed_713_714": {
-      "name": "sealed_2026-07-13_2026-07-14",
-      "n": 304,
-      "ap": 0.9760725809274565,
-      "roc_auc": 0.9767139889196675,
-      "reward": 0.9442569822719781,
-      "bot_recall_at_5fpr": 0.8421052631578947,
-      "hard_bot_recall@0.5": 0.8618421052631579,
-      "hard_fpr@0.5": 0.07236842105263158,
-      "overall_acc@0.5": 0.8947368421052632,
+    "lodo_selection_score": 0.9362168174915806,
+    "holdout_sealed": {
+      "name": "holdout_sealed",
+      "n": 284,
+      "ap": 0.9880208867723086,
+      "roc_auc": 0.986064272961714,
+      "reward": 0.9789059019196037,
+      "bot_recall_at_5fpr": 0.9436619718309859,
+      "hard_bot_recall@0.5": 0.9366197183098591,
+      "hard_fpr@0.5": 0.035211267605633804,
+      "overall_acc@0.5": 0.9507042253521126,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     },
-    "sealed_714_715": {
-      "name": "sealed_2026-07-14_2026-07-15",
-      "n": 290,
-      "ap": 0.982540962856877,
-      "roc_auc": 0.9820214030915577,
-      "reward": 0.9587169232068035,
-      "bot_recall_at_5fpr": 0.8827586206896552,
-      "hard_bot_recall@0.5": 0.9103448275862069,
-      "hard_fpr@0.5": 0.06896551724137931,
-      "overall_acc@0.5": 0.9206896551724137,
-      "threshold_sanity": 1.0,
-      "human_safety": 1.0
-    },
-    "sealed_713_714_topk": {
+    "holdout_sealed_topk": {
       "name": "topk_frac_0.125_bs40",
-      "n": 304,
-      "ap": 0.975941180634228,
-      "roc_auc": 0.9765841412742382,
-      "reward": 0.9442109921693481,
-      "bot_recall_at_5fpr": 0.8421052631578947,
-      "hard_bot_recall@0.5": 0.25,
+      "n": 284,
+      "ap": 0.987976545512576,
+      "roc_auc": 0.986064272961714,
+      "reward": 0.9788903824786973,
+      "bot_recall_at_5fpr": 0.9436619718309859,
+      "hard_bot_recall@0.5": 0.24647887323943662,
       "hard_fpr@0.5": 0.0,
-      "overall_acc@0.5": 0.625,
+      "overall_acc@0.5": 0.6232394366197183,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     }
   },
-  "lodo_top5": [
-    {
-      "tag": "cfn|reg|hard=-|x1.0",
-      "sel": 0.9122088204896451,
-      "lodo": {
-        "name": "lodo",
-        "n": 548,
-        "ap": 0.9673592674811875,
-        "roc_auc": 0.963556928978635,
-        "reward": 0.9458750136914084,
-        "bot_recall_at_5fpr": 0.8576642335766423,
-        "hard_bot_recall@0.5": 0.9014598540145985,
-        "hard_fpr@0.5": 0.08394160583941605,
-        "overall_acc@0.5": 0.9087591240875912,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      },
-      "sealed_713_714": {
-        "name": "sealed_2026-07-13_2026-07-14",
-        "n": 304,
-        "ap": 0.9692445902914487,
-        "roc_auc": 0.9672351108033241,
-        "reward": 0.9280513960756912,
-        "bot_recall_at_5fpr": 0.7960526315789473,
-        "hard_bot_recall@0.5": 0.8157894736842105,
-        "hard_fpr@0.5": 0.05921052631578947,
-        "overall_acc@0.5": 0.8782894736842105,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      }
-    },
-    {
-      "tag": "cfn|reg|hard=['2026-07-12']|x1.0",
-      "sel": 0.9122088204896451,
-      "lodo": {
-        "name": "lodo",
-        "n": 548,
-        "ap": 0.9673592674811875,
-        "roc_auc": 0.963556928978635,
-        "reward": 0.9458750136914084,
-        "bot_recall_at_5fpr": 0.8576642335766423,
-        "hard_bot_recall@0.5": 0.9014598540145985,
-        "hard_fpr@0.5": 0.08394160583941605,
-        "overall_acc@0.5": 0.9087591240875912,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      },
-      "sealed_713_714": {
-        "name": "sealed_2026-07-13_2026-07-14",
-        "n": 304,
-        "ap": 0.9692445902914487,
-        "roc_auc": 0.9672351108033241,
-        "reward": 0.9280513960756912,
-        "bot_recall_at_5fpr": 0.7960526315789473,
-        "hard_bot_recall@0.5": 0.8157894736842105,
-        "hard_fpr@0.5": 0.05921052631578947,
-        "overall_acc@0.5": 0.8782894736842105,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      }
-    },
-    {
-      "tag": "cfn|reg|hard=['2026-07-11', '2026-07-12']|x1.0",
-      "sel": 0.9122088204896451,
-      "lodo": {
-        "name": "lodo",
-        "n": 548,
-        "ap": 0.9673592674811875,
-        "roc_auc": 0.963556928978635,
-        "reward": 0.9458750136914084,
-        "bot_recall_at_5fpr": 0.8576642335766423,
-        "hard_bot_recall@0.5": 0.9014598540145985,
-        "hard_fpr@0.5": 0.08394160583941605,
-        "overall_acc@0.5": 0.9087591240875912,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      },
-      "sealed_713_714": {
-        "name": "sealed_2026-07-13_2026-07-14",
-        "n": 304,
-        "ap": 0.9692445902914487,
-        "roc_auc": 0.9672351108033241,
-        "reward": 0.9280513960756912,
-        "bot_recall_at_5fpr": 0.7960526315789473,
-        "hard_bot_recall@0.5": 0.8157894736842105,
-        "hard_fpr@0.5": 0.05921052631578947,
-        "overall_acc@0.5": 0.8782894736842105,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      }
-    },
-    {
-      "tag": "beat|v3ish|hard=-|x1.0",
-      "sel": 0.9113316214620527,
-      "lodo": {
-        "name": "lodo",
-        "n": 548,
-        "ap": 0.9741566330924644,
-        "roc_auc": 0.9715088710107092,
-        "reward": 0.9460643106334573,
-        "bot_recall_at_5fpr": 0.8503649635036497,
-        "hard_bot_recall@0.5": 0.916058394160584,
-        "hard_fpr@0.5": 0.08394160583941605,
-        "overall_acc@0.5": 0.916058394160584,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      },
-      "sealed_713_714": {
-        "name": "sealed_2026-07-13_2026-07-14",
-        "n": 304,
-        "ap": 0.9760725809274565,
-        "roc_auc": 0.9767139889196675,
-        "reward": 0.9442569822719781,
-        "bot_recall_at_5fpr": 0.8421052631578947,
-        "hard_bot_recall@0.5": 0.8618421052631579,
-        "hard_fpr@0.5": 0.07236842105263158,
-        "overall_acc@0.5": 0.8947368421052632,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      }
-    },
-    {
-      "tag": "beat|v3ish|hard=['2026-07-12']|x1.0",
-      "sel": 0.9113316214620527,
-      "lodo": {
-        "name": "lodo",
-        "n": 548,
-        "ap": 0.9741566330924644,
-        "roc_auc": 0.9715088710107092,
-        "reward": 0.9460643106334573,
-        "bot_recall_at_5fpr": 0.8503649635036497,
-        "hard_bot_recall@0.5": 0.916058394160584,
-        "hard_fpr@0.5": 0.08394160583941605,
-        "overall_acc@0.5": 0.916058394160584,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      },
-      "sealed_713_714": {
-        "name": "sealed_2026-07-13_2026-07-14",
-        "n": 304,
-        "ap": 0.9760725809274565,
-        "roc_auc": 0.9767139889196675,
-        "reward": 0.9442569822719781,
-        "bot_recall_at_5fpr": 0.8421052631578947,
-        "hard_bot_recall@0.5": 0.8618421052631579,
-        "hard_fpr@0.5": 0.07236842105263158,
-        "overall_acc@0.5": 0.8947368421052632,
-        "threshold_sanity": 1.0,
-        "human_safety": 1.0
-      }
-    }
-  ],
-  "benchmark_n": 2030,
-  "label_counts": {
-    "all": {
-      "0": 1015,
-      "1": 1015
-    }
-  },
-  "beats_xgb_v3_on_713_714": true
+  "selection_policy": "daily recipe: beat_v3 (comp+FN+v3) capacity XGB + LODO; holdout sealed; deploy all"
 }

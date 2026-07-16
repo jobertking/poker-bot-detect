@@ -10,6 +10,7 @@ MINER_SCRIPT="${MINER_SCRIPT:-./neurons/miner.py}"
 PM2_NAME="${PM2_NAME:-poker44_miner}"  ##  name of Miner, as you wish
 AXON_PORT="${AXON_PORT:-8091}"
 ALLOWED_VALIDATOR_HOTKEYS="${ALLOWED_VALIDATOR_HOTKEYS:-}"
+PYTHON_BIN="${PYTHON_BIN:-}"
 
 if [ ! -f "$MINER_SCRIPT" ]; then
     echo "Error: Miner script not found at $MINER_SCRIPT"
@@ -21,8 +22,24 @@ if ! command -v pm2 &> /dev/null; then
     exit 1
 fi
 
+# Prefer miner_env from setup.sh so PM2 does not use broken system Python.
+if [ -z "$PYTHON_BIN" ]; then
+  if [ -x "$(pwd)/miner_env/bin/python" ]; then
+    PYTHON_BIN="$(pwd)/miner_env/bin/python"
+  else
+    PYTHON_BIN="$(command -v python3 || command -v python)"
+  fi
+fi
+if [ ! -x "$PYTHON_BIN" ]; then
+  echo "Error: Python interpreter not found: $PYTHON_BIN"
+  echo "Run ./scripts/miner/setup.sh first to create miner_env."
+  exit 1
+fi
+
 pm2 delete $PM2_NAME 2>/dev/null || true
 
+# Bittensor 10+ defaults BT_NO_PARSE_CLI_ARGS=true, which ignores wallet/axon flags.
+export BT_NO_PARSE_CLI_ARGS="${BT_NO_PARSE_CLI_ARGS:-0}"
 export PYTHONPATH="$(pwd)"
 export POKER44_MODEL_PATH="${POKER44_MODEL_PATH:-$(pwd)/models/competitive/current.joblib}"
 # MODEL_PATH takes precedence over MODEL_DIR when both are set.
@@ -37,6 +54,8 @@ export POKER44_REQUEST_LOG_DIR="${POKER44_REQUEST_LOG_DIR:-$(pwd)/logs/requests}
 export POKER44_LOG_REQUEST_FULL="${POKER44_LOG_REQUEST_FULL:-1}"
 export POKER44_LOG_REQUEST_GZIP="${POKER44_LOG_REQUEST_GZIP:-0}"
 export POKER44_REQUEST_LOG_MAX_FILES="${POKER44_REQUEST_LOG_MAX_FILES:-0}"
+# Ensure PM2 child inherits these env vars.
+export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"
 
 MINER_ARGS=(
   --netuid "$NETUID"
@@ -54,8 +73,11 @@ else
   MINER_ARGS+=(--blacklist.force_validator_permit)
 fi
 
-pm2 start $MINER_SCRIPT \
-  --name $PM2_NAME -- \
+echo "Using Python: $PYTHON_BIN"
+pm2 start "$MINER_SCRIPT" \
+  --name "$PM2_NAME" \
+  --interpreter "$PYTHON_BIN" \
+  -- \
   "${MINER_ARGS[@]}"
 
 pm2 save

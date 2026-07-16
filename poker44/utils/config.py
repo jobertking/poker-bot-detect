@@ -161,11 +161,25 @@ def add_miner_args(cls, parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Placeholder flag retained for compatibility.",
     )
+    parser.add_argument(
+        "--neuron.name",
+        type=str,
+        default="poker44_miner",
+        help="Folder name under wallet/hotkey for neuron-local logs and state.",
+    )
 
 
 
 def check_config(cls, config: "bt.Config"):
     r"""Checks/validates the config namespace object."""
+    if getattr(config, "neuron", None) is None:
+        config.neuron = bt.Config()
+    if not getattr(config.neuron, "name", None):
+        config.neuron.name = "poker44_miner"
+    if not getattr(config.neuron, "device", None):
+        config.neuron.device = "cpu"
+    if getattr(config.neuron, "epoch_length", None) is None:
+        config.neuron.epoch_length = 50
     full_path = os.path.expanduser(
         "{}/{}/{}/netuid{}/{}".format(
             config.logging.logging_dir,  # TODO: change from ~/.bittensor/miners to ~/.bittensor/neurons
