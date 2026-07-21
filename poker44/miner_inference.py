@@ -10,6 +10,7 @@ import joblib
 import numpy as np
 
 from features import (
+    beat_v3_coherent_live_schema,
     beat_v3_coherent_schema,
     beat_v3_schema,
     chunk_features,
@@ -34,6 +35,7 @@ _SCHEMAS = {
     "competitive_fn": competitive_fn_schema,
     "beat_v3": beat_v3_schema,
     "beat_v3_coherent": beat_v3_coherent_schema,
+    "beat_v3_coherent_live": beat_v3_coherent_live_schema,
     "merged": merged_schema,
     "selective": selective_schema,
     "v3": chunk_features,
@@ -148,7 +150,31 @@ class CompetitiveMinerModel:
         self.model_version = str(self.metadata.get("model_version", "5.1.0"))
         self.kind = str(payload.get("kind") or self.metadata.get("artifact_kind") or "single")
 
-        if self.kind == "rank_blend_v1" or "branches" in payload:
+        if self.kind == "stacked_v1" or "meta_model" in payload:
+            self.kind = "stacked_v1"
+            feature_set = str(
+                payload.get("feature_set")
+                or self.metadata.get("feature_set")
+                or "beat_v3_coherent"
+            )
+            self.feature_set = feature_set
+            self.feature_names = list(
+                payload.get("feature_names") or _default_feature_names(feature_set)
+            )
+            self.tabular_models = list(
+                payload.get("tabular_models") or payload.get("models") or []
+            )
+            self.tabular_weights = list(
+                payload.get("tabular_weights")
+                or [1.0 / max(1, len(self.tabular_models))] * len(self.tabular_models)
+            )
+            self.sequence_model = payload.get("sequence_model")
+            self.meta_model = payload.get("meta_model")
+            self.meta_inputs = list(payload.get("meta_inputs") or ["tabular", "sequence"])
+            self.heads = []
+            self.models = []
+            self.weights = []
+        elif self.kind == "rank_blend_v1" or "branches" in payload:
             self.kind = "rank_blend_v1"
             self.branches = list(payload["branches"])
             feature_set = str(
@@ -255,6 +281,24 @@ class CompetitiveMinerModel:
             matrix = np.vstack(probs)
         return (weights_arr[:, None] * matrix).sum(axis=0) / wsum
 
+    def _stacked_raw_scores(self, chunks: Sequence[Sequence[dict] | None]) -> np.ndarray:
+        """Stacked meta-probability from tabular base(s) + sequence model."""
+        n = len(chunks)
+        if n == 0:
+            return np.asarray([], dtype=np.float64)
+        sanitized = [sanitize_chunk(c) for c in chunks]
+        tab = _blend_predict(
+            self.tabular_models, self.tabular_weights,
+            self._vectorize(self.feature_set, self.feature_names, sanitized),
+        )
+        seq = np.asarray(
+            self.sequence_model.predict_proba(sanitized)[:, 1], dtype=np.float64
+        )
+        by_name = {"tabular": tab, "sequence": seq}
+        cols = [by_name[name] for name in self.meta_inputs]
+        Z = np.column_stack(cols)
+        return np.asarray(self.meta_model.predict_proba(Z)[:, 1], dtype=np.float64)
+
     def _raw_scores(self, chunks: Sequence[Sequence[dict] | None]) -> np.ndarray:
         if not chunks:
             return np.asarray([], dtype=np.float64)
@@ -321,6 +365,11 @@ class CompetitiveMinerModel:
             # Fused rank scores are already in [0,1]; skip prob calibration/remap.
             raw = self._rank_blend_scores(chunks)
             return self._batch_postprocess([float(x) for x in raw])
+        if self.kind == "stacked_v1":
+            raw = self._stacked_raw_scores(chunks)
+            cal = self._calibrate(raw)
+            remapped = self._apply_score_remap([float(x) for x in cal])
+            return self._batch_postprocess(remapped)
         raw = self._raw_scores(chunks)
         cal = self._calibrate(raw)
         remapped = self._apply_score_remap([float(x) for x in cal])

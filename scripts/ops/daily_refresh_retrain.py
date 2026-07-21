@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Fetch new Poker44 benchmark days and retrain competitive model if needed.
 
+Retraining runs the GATED coherent trainer (train_beat_v3_coherent.py): a new
+candidate is deployed to current.joblib ONLY if it beats the currently-live
+model on a live-shaped (80-100 hand, top-K@100) holdout by >= --min-gain.
+Otherwise the live artifact is left untouched and the candidate is saved aside.
+
 Exit codes:
-  0 — success (retrained, or already up to date)
+  0 — success (deployed, held, or already up to date)
   2 — fetch/train failure / lock busy
   3 — remote newer than local when --fail-if-stale
 """
@@ -110,6 +115,17 @@ def main() -> int:
     )
     ap.add_argument("--holdout-days", type=int, default=2)
     ap.add_argument("--recent-val-days", type=int, default=4)
+    ap.add_argument(
+        "--min-gain",
+        type=float,
+        default=0.002,
+        help="Required live-shaped topk100 reward gain over current model to deploy.",
+    )
+    ap.add_argument(
+        "--force-deploy",
+        action="store_true",
+        help="Deploy candidate even if it does not beat current (NOT recommended).",
+    )
     ap.add_argument("--lock-path", type=Path, default=DEFAULT_LOCK)
     args = ap.parse_args()
 
@@ -257,30 +273,50 @@ def _run_locked(args: argparse.Namespace) -> int:
         )
         return 2
 
-    rc = run(
-        [
-            py,
-            str(ROOT / "scripts" / "train" / "train_competitive_daily.py"),
-            "--examples",
-            str(examples),
-            "--out-dir",
-            str(args.model_dir),
-            "--holdout-days",
-            str(args.holdout_days),
-            "--recent-val-days",
-            str(args.recent_val_days),
-            "--archive",
-        ],
-        cwd=ROOT,
-    )
-    report = read_json(args.model_dir / "train_report.json") if rc == 0 else {}
-    reload_note = maybe_reload_miner() if rc == 0 else None
+    train_cmd = [
+        py,
+        str(ROOT / "scripts" / "train" / "train_beat_v3_coherent.py"),
+        "--examples",
+        str(examples),
+        "--out-dir",
+        str(args.model_dir),
+        "--holdout-days",
+        str(args.holdout_days),
+        "--recent-val-days",
+        str(args.recent_val_days),
+        "--min-gain",
+        str(args.min_gain),
+    ]
+    if args.force_deploy:
+        train_cmd.append("--force-deploy")
+    rc = run(train_cmd, cwd=ROOT)
+
+    # The gated trainer returns 0 whether it DEPLOYED or HELD. On deploy it
+    # rewrites train_report.json; on hold it only writes candidate_report.json
+    # and leaves the live artifact untouched. Pick whichever report was written
+    # by THIS run (trained_at >= run start) to learn the true decision.
+    fresh_report: dict = {}
+    deployed = False
+    if rc == 0:
+        deploy_report = read_json(args.model_dir / "train_report.json")
+        cand_report = read_json(args.model_dir / "candidate_report.json")
+        if str(deploy_report.get("trained_at_utc") or "") >= started:
+            fresh_report = deploy_report
+        elif str(cand_report.get("trained_at_utc") or "") >= started:
+            fresh_report = cand_report
+        deployed = bool((fresh_report.get("gate") or {}).get("deployed"))
+
+    # Only bother PM2-reloading when a new artifact actually landed (the miner
+    # hot-reloads current.joblib on its own regardless).
+    reload_note = maybe_reload_miner() if (rc == 0 and deployed) else None
+    gate = fresh_report.get("gate") or {}
     payload = {
         "started_at_utc": started,
         "finished_at_utc": datetime.now(timezone.utc).isoformat(),
         "ok": rc == 0,
         "fetched": fetched,
         "retrained": rc == 0,
+        "deployed": deployed,
         "train_exit": rc,
         "local_before": local_before,
         "local_after": local_after,
@@ -291,8 +327,9 @@ def _run_locked(args: argparse.Namespace) -> int:
         "recipe_changed": recipe_changed,
         "examples_fingerprint": fp_after,
         "recipe_fingerprint": recipe_now,
-        "metrics": report.get("metrics") if rc == 0 else None,
-        "latest_source_date": report.get("latest_source_date") or local_after,
+        "metrics": fresh_report.get("metrics") if rc == 0 else None,
+        "gate": gate or None,
+        "latest_source_date": fresh_report.get("latest_source_date") or local_after,
         "model_dir": str(args.model_dir),
         "miner_reload": reload_note,
         "retrain_triggers": {
@@ -307,13 +344,13 @@ def _run_locked(args: argparse.Namespace) -> int:
         print(f"Train failed. Log: {path}", flush=True)
         return 2
     print(f"Done. Log: {path}", flush=True)
-    if report.get("metrics"):
-        sealed = report["metrics"].get("holdout_sealed") or {}
-        print(
-            f"Sealed reward={sealed.get('reward')} bot@5fpr={sealed.get('bot_recall_at_5fpr')} "
-            f"ap={sealed.get('ap')}",
-            flush=True,
-        )
+    print(
+        f"Gate: deployed={deployed} "
+        f"candidate_topk100={gate.get('candidate_live_topk100')} "
+        f"current_topk100={gate.get('current_live_topk100')} "
+        f"gain={gate.get('gain')} min_gain={gate.get('min_gain')}",
+        flush=True,
+    )
     if reload_note:
         print(reload_note, flush=True)
     return 0

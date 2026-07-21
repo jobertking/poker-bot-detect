@@ -1,10 +1,10 @@
 {
-  "trained_at_utc": "2026-07-16T17:17:40.135352+00:00",
-  "model_name": "poker44-beat-v3-coherent",
-  "model_version": "8.0.0",
-  "n_features": 951,
-  "feature_set": "beat_v3_coherent",
-  "recipe_fingerprint": "daa3dd83d45e09b4406c035284ac1c05289d29aa11bd1e6187870e718d65204b",
+  "trained_at_utc": "2026-07-21T04:03:13.998694+00:00",
+  "model_name": "poker44-beat-v3-coherent-live",
+  "model_version": "8.1.0-live-geometry",
+  "n_features": 603,
+  "feature_set": "beat_v3_coherent_live",
+  "recipe_fingerprint": "d6f9d20c63668c7687bc64d4c9d902eb0ac931fce264c83e3f2f61e930b6c74d",
   "half_life_days": 6.0,
   "score_remap": {
     "kind": "threshold_logit_v1",
@@ -12,103 +12,138 @@
     "temperature": 0.05
   },
   "holdout_dates": [
-    "2026-07-15",
-    "2026-07-16"
+    "2026-07-20",
+    "2026-07-21"
   ],
   "recent_lodo_dates": [
-    "2026-07-11",
-    "2026-07-12",
-    "2026-07-13",
-    "2026-07-14"
+    "2026-07-16",
+    "2026-07-17",
+    "2026-07-18",
+    "2026-07-19"
   ],
-  "latest_source_date": "2026-07-16",
-  "benchmark_n": 2176,
+  "latest_source_date": "2026-07-21",
+  "benchmark_n": 2936,
+  "feature_audit_summary": {
+    "n_base": 951,
+    "n_robust": 603,
+    "n_audit_flagged": 8,
+    "live_hand_count_median": 104.5
+  },
   "augmentation": {
     "config": {
       "large_ratio": 1.25,
       "medium_ratio": 0.4,
+      "small_live_ratio": 0.35,
+      "xlarge_ratio": 1.0,
       "sources_per_merge": 3,
       "large_min_hands": 80,
       "large_max_hands": 100,
       "medium_min_hands": 50,
-      "medium_max_hands": 75
+      "medium_max_hands": 75,
+      "small_live_min_hands": 70,
+      "small_live_max_hands": 79,
+      "xlarge_min_hands": 101,
+      "xlarge_max_hands": 160
     },
     "pool_stats": {
-      "original": 1892,
-      "large": 2365,
-      "medium": 757,
-      "full_total": 5014
+      "original": 2614,
+      "large": 3268,
+      "medium": 1046,
+      "small_live": 915,
+      "xlarge": 2614,
+      "full_total": 10457
     },
     "deploy_stats": {
-      "original": 2176,
-      "large": 2720,
-      "medium": 870,
-      "full_total": 5766
+      "original": 2936,
+      "large": 3670,
+      "medium": 1174,
+      "small_live": 1028,
+      "xlarge": 2936,
+      "full_total": 11744
     }
   },
   "gate": {
-    "candidate_live_topk100": 0.9558824783255212,
-    "current_live_topk100": 0.9502893085759921,
-    "current_version": "7.1.0",
-    "gain": 0.005593169749529059,
-    "min_gain": 0.003,
+    "candidate_combined_topk": 0.8573617794228994,
+    "candidate_topk100": 0.8573224699604866,
+    "candidate_topk120": 0.8574010888853122,
+    "current_combined_topk": 0.8760116852924218,
+    "current_topk100": 0.8788911313391087,
+    "current_topk120": 0.8731322392457349,
+    "current_version": "8.1.0-live-geometry",
+    "gain": -0.01864990586952242,
+    "min_gain": 0.0,
     "deployed": true,
-    "forced": false
+    "forced": true,
+    "manual_promotion_at_utc": "2026-07-21T04:04:15.415491+00:00",
+    "note": "Manual update with Jul-21 data despite gate HOLD"
   },
   "metrics": {
     "lodo": {
       "name": "lodo",
-      "n": 2605,
-      "ap": 0.9721057689400923,
-      "roc_auc": 0.9664961974519215,
-      "reward": 0.9523617304454294,
-      "bot_recall_at_5fpr": 0.8737490377213241,
-      "hard_bot_recall@0.5": 0.8860662047729022,
-      "hard_fpr@0.5": 0.05972434915773354,
-      "overall_acc@0.5": 0.9132437619961612,
+      "n": 5356,
+      "ap": 0.9619476021586972,
+      "roc_auc": 0.9535594761729003,
+      "reward": 0.9292942398400249,
+      "bot_recall_at_5fpr": 0.8087085969482695,
+      "hard_bot_recall@0.5": 0.854484555266096,
+      "hard_fpr@0.5": 0.08317721993255901,
+      "overall_acc@0.5": 0.8855489171023152,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     },
-    "lodo_selection_score": 0.9232921282125558,
+    "lodo_selection_score": 0.885835804361641,
     "candidate_live_shaped": {
       "name": "candidate_live_shaped",
-      "n": 284,
-      "ap": 0.9705992834482544,
-      "roc_auc": 0.9612676056338029,
-      "reward": 0.9559069323054806,
-      "bot_recall_at_5fpr": 0.8873239436619719,
-      "hard_bot_recall@0.5": 0.8943661971830986,
-      "hard_fpr@0.5": 0.07746478873239436,
-      "overall_acc@0.5": 0.9084507042253521,
+      "n": 322,
+      "ap": 0.9023570532652107,
+      "roc_auc": 0.8777824929593765,
+      "reward": 0.7109595442121819,
+      "bot_recall_at_5fpr": 0.639751552795031,
+      "hard_bot_recall@0.5": 0.937888198757764,
+      "hard_fpr@0.5": 0.5403726708074534,
+      "overall_acc@0.5": 0.6987577639751553,
+      "threshold_sanity": 0.5106970324361628,
+      "human_safety": 0.5106970324361628
+    },
+    "candidate_topk100": {
+      "name": "topk_frac_0.125_bs100",
+      "n": 322,
+      "ap": 0.9011342974913634,
+      "roc_auc": 0.8773195478569501,
+      "reward": 0.8573224699604866,
+      "bot_recall_at_5fpr": 0.639751552795031,
+      "hard_bot_recall@0.5": 0.2360248447204969,
+      "hard_fpr@0.5": 0.0,
+      "overall_acc@0.5": 0.6180124223602484,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     },
-    "candidate_live_shaped_topk100": {
-      "name": "topk_frac_0.125_bs100",
-      "n": 284,
-      "ap": 0.9705294149340851,
-      "roc_auc": 0.9614163856377702,
-      "reward": 0.9558824783255212,
-      "bot_recall_at_5fpr": 0.8873239436619719,
-      "hard_bot_recall@0.5": 0.23943661971830985,
+    "candidate_topk120": {
+      "name": "topk_frac_0.125_bs120",
+      "n": 322,
+      "ap": 0.9013589229908653,
+      "roc_auc": 0.877570309787431,
+      "reward": 0.8574010888853122,
+      "bot_recall_at_5fpr": 0.639751552795031,
+      "hard_bot_recall@0.5": 0.2484472049689441,
       "hard_fpr@0.5": 0.0,
-      "overall_acc@0.5": 0.6197183098591549,
+      "overall_acc@0.5": 0.6242236024844721,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     },
     "current_live_shaped": {
       "name": "live_model_bs100",
-      "n": 284,
-      "ap": 0.9726575818468993,
-      "roc_auc": 0.9669956357865503,
-      "reward": 0.9502893085759921,
-      "bot_recall_at_5fpr": 0.8661971830985915,
-      "hard_bot_recall@0.5": 0.23943661971830985,
+      "n": 322,
+      "ap": 0.920168094864179,
+      "roc_auc": 0.8991358358088036,
+      "reward": 0.8788911313391087,
+      "bot_recall_at_5fpr": 0.6894409937888198,
+      "hard_bot_recall@0.5": 0.2360248447204969,
       "hard_fpr@0.5": 0.0,
-      "overall_acc@0.5": 0.6197183098591549,
+      "overall_acc@0.5": 0.6180124223602484,
       "threshold_sanity": 1.0,
       "human_safety": 1.0
     }
   },
-  "selection_policy": "beat_v3 + coherent + large-chunk aug; deploy ONLY if candidate beats current live model on live-shaped topk100 by >= min_gain"
+  "selection_policy": "70-160 aug + live-robust features; deploy ONLY if combined topk100/topk120 beats current live model by >= min_gain"
 }

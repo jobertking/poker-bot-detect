@@ -6,9 +6,10 @@
     "threshold": 0.52,
     "temperature": 0.05
   },
-  "model_name": "poker44-beat-v3-coherent",
-  "model_version": "8.0.0",
-  "latest_source_date": "2026-07-16",
-  "recipe_fingerprint": "daa3dd83d45e09b4406c035284ac1c05289d29aa11bd1e6187870e718d65204b",
-  "model_path": "/smile/poker/poker-bot-detect/models/competitive/current.joblib"
+  "model_name": "poker44-beat-v3-coherent-live",
+  "model_version": "8.1.0-live-geometry",
+  "latest_source_date": "2026-07-21",
+  "recipe_fingerprint": "d6f9d20c63668c7687bc64d4c9d902eb0ac931fce264c83e3f2f61e930b6c74d",
+  "model_path": "/smile/poker/poker-bot-detect/models/competitive/current.joblib",
+  "note": "Manual Jul-21 live-geometry update"
 }
