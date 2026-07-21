@@ -21,10 +21,47 @@ _EXCLUDE_SUBSTRINGS: tuple[str, ...] = (
 )
 
 # Always drop raw chunk-size counters (direct hand-count leakage).
+# Plus passivity / call-check means that shift 10–18× bench→live
+# (Poker44-cold-poker1 robust_features OOD audit) and fragile n-gram tokens.
 _EXCLUDE_EXACT: frozenset[str] = frozenset(
     {
         "hand_count",
         "fn_hand_count",
+        "schema_action_entropy_min",
+        "schema_action_run_max_share_max",
+        "schema_actor_entropy_max",
+        "schema_actor_entropy_q90",
+        "schema_actor_switch_rate_q50",
+        "schema_call_share_mean",
+        "schema_call_share_q10",
+        "schema_call_share_q50",
+        "schema_call_to_share_mean",
+        "schema_call_to_share_q10",
+        "schema_call_to_share_q50",
+        "schema_check_share_mean",
+        "schema_check_share_q10",
+        "schema_check_share_q50",
+        "schema_fold_share_max",
+        "schema_fold_share_q90",
+        "schema_passive_share_mean",
+        "schema_passive_share_min",
+        "schema_passive_share_q10",
+        "schema_passive_share_q50",
+        "schema_player_count_max",
+        "schema_player_count_q90",
+        "schema_unique_actor_share_q90",
+        "schema_ngram_fbs",
+        "schema_ngram_fcs",
+        "schema_ngram_pcs",
+        "schema_ngram_pcs__pcs",
+        "schema_ngram_pcs__pf0",
+        "schema_ngram_pcs__pk0",
+        "schema_ngram_pk0",
+        "schema_ngram_pk0__pcs",
+        "schema_ngram_pos1c",
+        "schema_ngram_pos1k",
+        "schema_ngram_rcs",
+        "schema_ngram_tcs",
     }
 )
 

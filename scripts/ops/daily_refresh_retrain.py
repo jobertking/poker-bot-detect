@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fetch new Poker44 benchmark days and retrain competitive model if needed.
 
-Retraining runs the GATED coherent trainer (train_beat_v3_coherent.py): a new
+Retraining runs the GATED live-geometry trainer (train_live_geometry.py): a new
 candidate is deployed to current.joblib ONLY if it beats the currently-live
-model on a live-shaped (80-100 hand, top-K@100) holdout by >= --min-gain.
+model on a live-shaped (topk100+topk120) holdout by >= --min-gain, using a fair
+pool-held-out deploy (no holdout-date refit).
 Otherwise the live artifact is left untouched and the candidate is saved aside.
 
 Exit codes:
@@ -275,11 +276,12 @@ def _run_locked(args: argparse.Namespace) -> int:
 
     train_cmd = [
         py,
-        str(ROOT / "scripts" / "train" / "train_beat_v3_coherent.py"),
+        str(ROOT / "scripts" / "train" / "train_live_geometry.py"),
         "--examples",
         str(examples),
         "--out-dir",
-        str(args.model_dir),
+        str(ROOT / "models" / "staging_live_geometry"),
+        "--deploy-to-competitive",
         "--holdout-days",
         str(args.holdout_days),
         "--recent-val-days",
@@ -291,17 +293,22 @@ def _run_locked(args: argparse.Namespace) -> int:
         train_cmd.append("--force-deploy")
     rc = run(train_cmd, cwd=ROOT)
 
-    # The gated trainer returns 0 whether it DEPLOYED or HELD. On deploy it
-    # rewrites train_report.json; on hold it only writes candidate_report.json
-    # and leaves the live artifact untouched. Pick whichever report was written
-    # by THIS run (trained_at >= run start) to learn the true decision.
+    # The gated trainer returns 0 for both DEPLOYED and HELD. On deploy it
+    # rewrites models/competitive/train_report.json; on hold it only updates
+    # staging estimation_report.json. Prefer competitive report when fresh,
+    # else fall back to staging.
     fresh_report: dict = {}
     deployed = False
     if rc == 0:
         deploy_report = read_json(args.model_dir / "train_report.json")
+        staging_report = read_json(
+            ROOT / "models" / "staging_live_geometry" / "estimation_report.json"
+        )
         cand_report = read_json(args.model_dir / "candidate_report.json")
         if str(deploy_report.get("trained_at_utc") or "") >= started:
             fresh_report = deploy_report
+        elif str(staging_report.get("trained_at_utc") or "") >= started:
+            fresh_report = staging_report
         elif str(cand_report.get("trained_at_utc") or "") >= started:
             fresh_report = cand_report
         deployed = bool((fresh_report.get("gate") or {}).get("deployed"))

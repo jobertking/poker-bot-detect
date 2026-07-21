@@ -12,13 +12,14 @@ from typing import Any, Dict, List, Sequence, Tuple
 import math
 import numpy as np
 
-# Observed live distribution (request logs, Jul 2026).
+# Observed live distribution from logs/requests (Jul 2026 scan):
+# ~80% of chunks are 80–100 hands; 101–160 is a minority (~12–20%).
 LIVE_HAND_BUCKETS: tuple[tuple[int, int, float], ...] = (
-    (70, 79, 0.04),
-    (80, 100, 0.55),
-    (101, 120, 0.15),
-    (121, 140, 0.15),
-    (141, 160, 0.11),
+    (70, 79, 0.03),
+    (80, 100, 0.80),
+    (101, 120, 0.07),
+    (121, 140, 0.05),
+    (141, 160, 0.05),
 )
 
 
@@ -26,10 +27,10 @@ LIVE_HAND_BUCKETS: tuple[tuple[int, int, float], ...] = (
 class LargeAugmentationConfig:
     """Ratios are relative to the number of original training chunks."""
 
-    large_ratio: float = 1.25
-    medium_ratio: float = 0.40
-    small_live_ratio: float = 0.35
-    xlarge_ratio: float = 1.00
+    large_ratio: float = 1.00
+    medium_ratio: float = 0.30
+    small_live_ratio: float = 0.25
+    xlarge_ratio: float = 0.20
     sources_per_merge: int = 3
     large_min_hands: int = 80
     large_max_hands: int = 100

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Live-geometry trainer: 70–160 aug + robust features + gated deploy.
+"""Live-geometry trainer: fair gate + live-cal + traffic-matched aug.
 
-Steps 1–4 pipeline:
-  1. Expand chunk augmentation to 70–160 (esp. 101–160).
-  2. Audit request logs → drop hand-count OOD features.
-  3. Train in staging with live-distribution holdout (topk100 + topk120 gate).
-  4. Deploy to models/competitive/current.joblib ONLY if gate passes.
+Pipeline:
+  1. Audit request logs → drop hand-count / passivity OOD features.
+  2. Augment pool to match live hand-count mix (~80% 80–100 hands).
+  3. Fit model on pool ONLY (no holdout dates in tree weights).
+  4. Calibrate on a live-shaped holdout slice (not LODO).
+  5. Gate on a disjoint live-shaped slice (topk100 + topk120).
+  6. Deploy the SAME pool model that was gated (no all-data refit).
 
 Default --out-dir is models/staging_live_geometry (live miner untouched until deploy).
 """
@@ -35,6 +37,7 @@ from poker44.artifact_io import (
     atomic_write_text,
     prune_archive,
     recipe_fingerprint,
+    read_json,
 )
 from poker44.large_chunk_augment import (
     LargeAugmentationConfig,
@@ -57,7 +60,7 @@ DEFAULT_EXAMPLES = ROOT / "data" / "benchmark" / "examples" / "examples.jsonl"
 DEFAULT_OUT = ROOT / "models" / "staging_live_geometry"
 COMPETITIVE_DIR = ROOT / "models" / "competitive"
 REQUEST_LOG_DIR = ROOT / "logs" / "requests"
-MODEL_VERSION = "8.1.0-live-geometry"
+MODEL_VERSION = "8.3.0-live-fair"
 
 
 def make_xgb(seed: int) -> XGBClassifier:
@@ -144,8 +147,41 @@ def score_live_model_windows(
 
 
 def combined_gate_score(topk100: dict, topk120: dict) -> float:
-    """Average topk reward at batch sizes 100 and 120 (Round 5 used 120-chunk batches)."""
+    """Average topk reward at batch sizes 100 and 120."""
     return 0.5 * float(topk100["reward"]) + 0.5 * float(topk120["reward"])
+
+
+def stratified_split_indices(y: np.ndarray, *, seed: int, cal_fraction: float = 0.5):
+    """Split indices into calibration vs gate, preserving label balance."""
+    rng = np.random.default_rng(seed)
+    cal_idx: list[int] = []
+    gate_idx: list[int] = []
+    for label in (0, 1):
+        idx = np.flatnonzero(y == label)
+        rng.shuffle(idx)
+        cut = int(round(len(idx) * cal_fraction))
+        cut = min(max(cut, 1 if len(idx) else 0), max(0, len(idx) - 1) if len(idx) > 1 else len(idx))
+        cal_idx.extend(idx[:cut].tolist())
+        gate_idx.extend(idx[cut:].tolist())
+    if not gate_idx and cal_idx:
+        gate_idx.append(cal_idx.pop())
+    if not cal_idx and gate_idx:
+        cal_idx.append(gate_idx.pop())
+    rng.shuffle(cal_idx)
+    rng.shuffle(gate_idx)
+    return np.asarray(cal_idx, dtype=int), np.asarray(gate_idx, dtype=int)
+
+
+def current_was_force_deployed() -> bool:
+    report_path = COMPETITIVE_DIR / "train_report.json"
+    if not report_path.exists():
+        return False
+    try:
+        report = read_json(report_path)
+    except Exception:
+        return False
+    gate = report.get("gate") or {}
+    return bool(gate.get("forced"))
 
 
 def main() -> int:
@@ -160,6 +196,12 @@ def main() -> int:
     ap.add_argument("--min-gain", type=float, default=0.002)
     ap.add_argument("--audit-max-files", type=int, default=15)
     ap.add_argument("--audit-corr-threshold", type=float, default=0.70)
+    ap.add_argument(
+        "--leakage-credit",
+        type=float,
+        default=0.05,
+        help="Credit applied to candidate when live current was force-deployed (holdout leak).",
+    )
     ap.add_argument(
         "--deploy-to-competitive",
         action="store_true",
@@ -189,11 +231,12 @@ def main() -> int:
         flush=True,
     )
 
+    # Traffic-matched aug: majority 80–100, light xlarge (see LargeAugmentationConfig defaults).
     aug_cfg = LargeAugmentationConfig(
-        large_ratio=1.25,
-        medium_ratio=0.40,
-        small_live_ratio=0.35,
-        xlarge_ratio=1.00,
+        large_ratio=1.00,
+        medium_ratio=0.30,
+        small_live_ratio=0.25,
+        xlarge_ratio=0.20,
     )
     pool_idx = np.flatnonzero(pool_mask)
     hold_idx = np.flatnonzero(hold_mask)
@@ -201,7 +244,7 @@ def main() -> int:
     pool_y = y[pool_mask]
     pool_dates = dates[pool_mask]
 
-    print("Augmenting pool (small_live + large + xlarge + medium)...", flush=True)
+    print("Augmenting pool (traffic-matched 80–100 heavy)...", flush=True)
     train_chunks, train_y, train_dates, aug_stats = build_training_views(
         pool_chunks, pool_y, pool_dates.tolist(), aug_cfg, seed=args.seed
     )
@@ -217,7 +260,7 @@ def main() -> int:
     dates_train = np.asarray(train_dates)
     train_pool_mask = np.ones(len(y_train), dtype=bool)
 
-    print("LODO + calibrate...", flush=True)
+    print("LODO monitor (not used for calibration)...", flush=True)
     oof, oy = lodo_oof(
         X_train,
         y_train,
@@ -231,12 +274,12 @@ def main() -> int:
         seed=args.seed,
         model_factory=make_xgb,
     )
-    cal, logit, _ = tune_cal_and_logit(oy, oof, args.seed)
-    scored = apply_post(oof, calibrator=cal, logit=logit)
-    m_lodo = eval_suite(oy, scored, "lodo")
+    # LODO-only metrics for monitoring; calibrator below is live-shaped.
+    _, _, m_lodo_raw = tune_cal_and_logit(oy, oof, args.seed)
+    m_lodo = m_lodo_raw
     print(
-        f"  LODO reward={m_lodo['reward']:.4f} ap={m_lodo['ap']:.4f} "
-        f"bot@5fpr={m_lodo['bot_recall_at_5fpr']:.4f} logit={logit}",
+        f"  LODO(monitor) reward={m_lodo['reward']:.4f} ap={m_lodo['ap']:.4f} "
+        f"bot@5fpr={m_lodo['bot_recall_at_5fpr']:.4f}",
         flush=True,
     )
 
@@ -255,12 +298,30 @@ def main() -> int:
         flush=True,
     )
 
-    print("Candidate scoring on live-distribution holdout...", flush=True)
+    print("Featurizing live holdout...", flush=True)
     X_live = featurize(live_chunks, names)
-    cand_scores = apply_post(model_pool.predict_proba(X_live)[:, 1], calibrator=cal, logit=logit)
-    cand_live = eval_suite(live_y, cand_scores, "candidate_live_shaped")
-    cand_topk100 = simulate_batch_reward(live_y, cand_scores, batch_size=100, fraction=0.125)
-    cand_topk120 = simulate_batch_reward(live_y, cand_scores, batch_size=120, fraction=0.125)
+    raw_live = model_pool.predict_proba(X_live)[:, 1]
+
+    cal_idx, gate_idx = stratified_split_indices(live_y, seed=args.seed + 11, cal_fraction=0.5)
+    print(
+        f"Live split: cal={len(cal_idx)} gate={len(gate_idx)} "
+        f"(cal for tune_cal_and_logit, gate for deploy decision)",
+        flush=True,
+    )
+
+    print("Calibrating on live-shaped cal slice...", flush=True)
+    cal, logit, m_cal = tune_cal_and_logit(live_y[cal_idx], raw_live[cal_idx], args.seed)
+    print(
+        f"  live-cal reward={m_cal['reward']:.4f} logit={logit}",
+        flush=True,
+    )
+
+    gate_chunks = [live_chunks[i] for i in gate_idx]
+    gate_y = live_y[gate_idx]
+    cand_scores = apply_post(raw_live[gate_idx], calibrator=cal, logit=logit)
+    cand_live = eval_suite(gate_y, cand_scores, "candidate_live_shaped_gate")
+    cand_topk100 = simulate_batch_reward(gate_y, cand_scores, batch_size=100, fraction=0.125)
+    cand_topk120 = simulate_batch_reward(gate_y, cand_scores, batch_size=120, fraction=0.125)
     cand_gate = combined_gate_score(cand_topk100, cand_topk120)
     print(
         f"  CANDIDATE live reward={cand_live['reward']:.4f} "
@@ -276,11 +337,11 @@ def main() -> int:
     current_gate = None
     current_version = None
     if current_path.exists():
-        print("Scoring CURRENT live model on same holdout...", flush=True)
+        print("Scoring CURRENT live model on same gate slice...", flush=True)
         live_model = CompetitiveMinerModel(model_path=current_path)
         current_version = live_model.model_version
-        current_topk100 = score_live_model_windows(live_model, live_chunks, live_y, window=100)
-        current_topk120 = score_live_model_windows(live_model, live_chunks, live_y, window=120)
+        current_topk100 = score_live_model_windows(live_model, gate_chunks, gate_y, window=100)
+        current_topk120 = score_live_model_windows(live_model, gate_chunks, gate_y, window=120)
         current_gate = combined_gate_score(current_topk100, current_topk120)
         current_metric = current_topk100
         print(
@@ -292,26 +353,29 @@ def main() -> int:
         print("  No current.joblib; candidate deploys if --deploy-to-competitive.", flush=True)
 
     cur_gate_val = current_gate if current_gate is not None else -1.0
+    forced_current = current_was_force_deployed()
+    leakage_credit = float(args.leakage_credit) if forced_current else 0.0
+    adjusted_cand = cand_gate + leakage_credit
     gain = cand_gate - cur_gate_val
-    beat = (current_gate is None) or (gain >= args.min_gain) or args.force_deploy
+    adjusted_gain = adjusted_cand - cur_gate_val
+    beat = (
+        (current_gate is None)
+        or (adjusted_gain >= args.min_gain)
+        or args.force_deploy
+    )
 
     print(
         f"\nGATE: candidate combined={cand_gate:.4f} vs current={cur_gate_val:.4f} "
-        f"gain={gain:+.4f} min_gain={args.min_gain:.4f} -> "
-        f"{'DEPLOY' if beat else 'HOLD'}",
+        f"gain={gain:+.4f} leakage_credit={leakage_credit:.4f} "
+        f"(forced_current={forced_current}) adjusted_gain={adjusted_gain:+.4f} "
+        f"min_gain={args.min_gain:.4f} -> {'DEPLOY' if beat else 'HOLD'}",
         flush=True,
     )
-
-    print("Fitting deploy model on all+aug...", flush=True)
-    deploy_chunks, deploy_y, deploy_dates, deploy_aug = build_training_views(
-        chunks, y, dates.tolist(), aug_cfg, seed=args.seed + 99
+    print(
+        "Deploy artifact = pool-held-out model + live-shaped calibrator "
+        "(no all-data holdout refit).",
+        flush=True,
     )
-    X_deploy = featurize(deploy_chunks, names)
-    y_deploy = np.asarray(deploy_y, dtype=np.int64)
-    dates_deploy = np.asarray(deploy_dates)
-    w_all = recency_weights(dates_deploy, sorted(set(dates_deploy.tolist())), args.half_life_days)
-    model = make_xgb(args.seed)
-    model.fit(X_deploy, y_deploy, sample_weight=w_all)
 
     trained_at = datetime.now(timezone.utc).isoformat()
     fingerprint = recipe_fingerprint(ROOT)
@@ -337,7 +401,15 @@ def main() -> int:
         "augmentation": {
             "config": aug_cfg.as_dict(),
             "pool_stats": aug_stats,
-            "deploy_stats": deploy_aug,
+            "deploy_stats": aug_stats,
+            "note": "deploy uses same pool-aug train set (no holdout refit)",
+        },
+        "calibration": {
+            "source": "live_shaped_cal_slice",
+            "n_cal": int(len(cal_idx)),
+            "n_gate": int(len(gate_idx)),
+            "live_cal_metrics": m_cal,
+            "logit": logit,
         },
         "gate": {
             "candidate_combined_topk": cand_gate,
@@ -348,12 +420,16 @@ def main() -> int:
             "current_topk120": current_topk120["reward"] if current_topk120 else None,
             "current_version": current_version,
             "gain": gain,
+            "adjusted_gain": adjusted_gain,
+            "leakage_credit": leakage_credit,
+            "forced_current_baseline": forced_current,
             "min_gain": args.min_gain,
             "deployed": False,
             "forced": bool(args.force_deploy),
+            "fair_deploy": True,
         },
         "metrics": {
-            "lodo": m_lodo,
+            "lodo_monitor": m_lodo,
             "lodo_selection_score": selection_score(m_lodo),
             "candidate_live_shaped": cand_live,
             "candidate_topk100": cand_topk100,
@@ -361,8 +437,10 @@ def main() -> int:
             "current_live_shaped": current_metric,
         },
         "selection_policy": (
-            "70-160 aug + live-robust features; deploy ONLY if combined topk100/topk120 "
-            "beats current live model by >= min_gain"
+            "Traffic-matched aug + live-robust OOD drops; calibrate on live-shaped "
+            "cal slice; gate on disjoint live-shaped slice; deploy the gated pool "
+            "model only (no holdout-date refit). Optional leakage credit when live "
+            "current was force-deployed."
         ),
     }
 
@@ -386,10 +464,11 @@ def main() -> int:
         "trained_at_utc": trained_at,
         "framework": "xgb_beat_v3_coherent_live",
         "recipe_fingerprint": fingerprint,
+        "fair_deploy": True,
     }
     artifact = {
         "kind": "single",
-        "models": [model],
+        "models": [model_pool],
         "weights": [1.0],
         "calibrator": cal,
         "feature_names": names,
@@ -429,6 +508,7 @@ def main() -> int:
                     "latest_source_date": unique[-1],
                     "recipe_fingerprint": fingerprint,
                     "model_path": str(deploy_path),
+                    "fair_deploy": True,
                 },
                 indent=2,
             )
@@ -441,7 +521,8 @@ def main() -> int:
         print("HELD: candidate did not beat current on combined topk gate.", flush=True)
 
     print(json.dumps({"gate": report["gate"]}, indent=2))
-    return 0 if beat else 1
+    # Always 0 when training/gate completed; HOLD is a valid outcome (not a crash).
+    return 0
 
 
 if __name__ == "__main__":

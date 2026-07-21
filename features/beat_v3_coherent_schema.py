@@ -3,6 +3,10 @@
 Same base contract as beat_v3, plus cross-hand coherence features that stay
 stable at live chunk sizes (~80-100 hands). Used identically by training and by
 the miner at serving time.
+
+Bulk hand n-grams are intentionally NOT in this default schema: a full-vocab
+add (+360 dims) failed the live-shaped gate. Keep ``hand_ngram_features`` for
+selective experiments only.
 """
 
 from __future__ import annotations

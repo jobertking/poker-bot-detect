@@ -25,6 +25,7 @@ RECIPE_FILES = (
     "features/beat_v3_schema.py",
     "features/beat_v3_coherent_schema.py",
     "features/coherent_features.py",
+    "features/hand_ngram_features.py",
     "features/competitive_fn_schema.py",
     "features/fn_patches.py",
     "features/competitive_schema.py",

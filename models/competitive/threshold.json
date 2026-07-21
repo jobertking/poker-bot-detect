@@ -7,9 +7,10 @@
     "temperature": 0.05
   },
   "model_name": "poker44-beat-v3-coherent-live",
-  "model_version": "8.1.0-live-geometry",
+  "model_version": "8.3.0-live-fair",
   "latest_source_date": "2026-07-21",
-  "recipe_fingerprint": "d6f9d20c63668c7687bc64d4c9d902eb0ac931fce264c83e3f2f61e930b6c74d",
+  "recipe_fingerprint": "f9f5407f9e0a18cd92909f3cbdd86c67c134285681e3f1395f8e3307a16bb0f9",
   "model_path": "/smile/poker/poker-bot-detect/models/competitive/current.joblib",
-  "note": "Manual Jul-21 live-geometry update"
+  "fair_deploy": true,
+  "fair_baseline_reset": true
 }
